@@ -25,6 +25,12 @@ COMMA macro
 
 endm
 
+ONE macro
+        mov dl, 49
+        mov ah, 02h
+        int 21h
+endm
+
 
 
 
@@ -56,6 +62,12 @@ _mod db ?
 
 _rm db ?
 
+_s db ?
+
+_offset_value db ?
+
+_cl db 'CL$'
+
 
 
 opp_1010 db 02h, 'movs'
@@ -72,6 +84,15 @@ opp_1101 db 00h, 'rol'
         db 05h, 'shr'
         db 07h, 'sar'
 
+
+opp_1000 db 00h, 'add'
+        db 01h, 'or '
+        db 02h, 'adc'
+        db 03h, 'sbb'
+        db 04h, 'and'
+        db 05h, 'sub'
+        db 06h, 'xor'
+        db 07h, 'cmp'
 
 segment_prefix_table db 00h, 'ES:'
                      db 01h, 'CS:'
@@ -97,7 +118,7 @@ register_table_w_1 db 00h, 'AX'
                     db 07h, 'DI'
 
 reg_memory_table_mod_00 db 00h, 'BX+SI'
-                        db 01h, 'CX+DI'
+                        db 01h, 'BX+DI'
                         db 02h, 'BP+SI'
                         db 03h, 'BP+DI'
                         db 04h, 'SI   '
@@ -105,14 +126,14 @@ reg_memory_table_mod_00 db 00h, 'BX+SI'
                         db 06h, '     '
                         db 07h, 'BX   '
 
-reg_memory_table_mod_01_10 db 00h, 'BX+SI+'
-                            db 01h, 'CX+DI+'
+reg_memory_table_mod_01_10 db 00h,  'BX+SI+'
+                            db 01h, 'BX+DI+'
                             db 02h, 'BP+SI+'
                             db 03h, 'BP+DI+'
-                            db 04h, 'SI+'
-                            db 05h, 'DI+'
-                            db 06h, 'BP+'
-                            db 07h, 'BX+'
+                            db 04h, 'SI+   '
+                            db 05h, 'DI+   '
+                            db 06h, 'BP+   '
+                            db 07h, 'BX+   '
 
 
 
@@ -168,13 +189,14 @@ parse_loop:
     mov al, byte ptr ds:[si]
     shr al, 04h
 
-
     cmp al, 0Ah
     je _1010
 
     cmp al, 0Dh
     je _1101
 
+    cmp al, 08h
+    je _1000
 
     jmp continue_loop
 
@@ -188,6 +210,10 @@ parse_loop:
 
     _1101:
         call handle_1101
+        jmp continue_loop
+
+    _1000:
+        call handle_1000
         jmp continue_loop
 
 
@@ -279,12 +305,7 @@ handle_001sr PROC
         ;; newline
         NEW_LINE
 
-
-
-
         ret
-
-
 
 handle_001sr ENDP
 
@@ -332,16 +353,135 @@ handle_1101 PROC
 
         call handle_mod
 
+        SPACE
 
-        NEW_LINE
+        cmp byte ptr ds:[_v], 01h
+        je print_CL
+
+        ONE
+        jmp continue
 
 
+        print_CL:
+            lea dx, _cl
+            mov ah, 40h
+            mov bx, 0001h
+            mov cx, 02h
+            int 21h
 
-        ret
+        continue:
+            NEW_LINE
+            ret
 
 handle_1101 ENDP
 
+handle_1000 PROC
+        mov al, byte ptr ds:[si]
+        call get_s
+        call get_w
 
+        call handle_buffer
+        mov al, byte ptr ds:[si]
+
+        call get_mod
+        call get_rm
+
+
+        and al, 38h
+        shr al, 3
+
+        lea bx, opp_1000
+        mov cx, 08h
+
+        _handle_1000_array_loop:
+            cmp al, byte ptr [bx]
+            je _handle_1000_opcode_found
+
+            add bx, 04h
+
+        loop _handle_1000_array_loop
+
+        _handle_1000_opcode_found:
+            inc bx
+            mov dx, bx
+            mov ah, 40h
+            mov bx, 0001h ;; kol kas i stdout
+            mov cx, 03h ;;kiek bitu rasysim
+            int 21h
+
+            SPACE
+
+
+            call handle_mod
+
+
+            SPACE
+            ;; s = 0, w = 1 skaitom 2 baitus
+            cmp byte ptr [_s], 0h
+            je _handle_1000_s_0
+
+            cmp byte ptr [_w], 0h
+            je _handle_1000_s_0
+
+            ;; handle special case s=1, w=1
+
+            call handle_buffer
+            mov al, byte ptr ds:[si]
+
+            cmp al, 80h
+            jae _handle_1000_spec_case
+
+            xor ah, ah
+            call print_ax_hex
+
+            jmp _handle_1000_end
+
+            _handle_1000_spec_case:
+                mov ah, 0FFh
+                call print_ax_hex
+
+                jmp _handle_1000_end
+
+            _handle_1000_w_0:
+                call handle_buffer
+                mov al, byte ptr ds:[si]
+
+                mov ah, 00h
+                call print_ax_hex
+
+                jmp _handle_1000_end
+
+
+            _handle_1000_s_0:
+                ;; jei w = 0 skaitom 1
+                cmp byte ptr [_w], 0h
+                je _handle_1000_w_0
+
+                call handle_buffer
+                mov al, byte ptr ds:[si]
+
+                call handle_buffer
+                mov ah, byte ptr ds:[si]
+
+                call print_ax_hex
+
+                jmp _handle_1000_end
+
+
+        ;; 4 atvejai
+        ;; s = 0 w = 0 --> skaitom tik 1 ir ji rasom
+        ;; s = 0 w = 1 --> skaitau 2 baitus
+        ;;spec case: nuskaitom viena baita, isidedam ji kazkur (pvz al) ir uzpildom ah arba 00 arba FF pagal most significant byte
+        ;; s = 1 w = 0 --> skaitom tik 1 ir ji rasom
+        ;; s = 1 w = 1 --> spec case: nuskaitom viena baita, isidedam ji kazkur (pvz al) ir uzpildom ah arba 00 arba FF pagal most significant byte
+
+
+        _handle_1000_end:
+            NEW_LINE
+            ret
+
+
+handle_1000 ENDP
 
 get_w PROC
     push ax
@@ -353,11 +493,23 @@ get_w ENDP
 
 get_v PROC
     push ax
-        and al, 0010h
+        and al, 02h
+        shr al, 1
         mov byte ptr ds:[_v], al
     pop ax
     ret
 get_v ENDP
+
+get_s PROC
+    push ax
+        and al, 02h
+        shr al, 1
+        mov byte ptr ds:[_s], al
+    pop ax
+    ret
+
+
+get_s ENDP
 
 get_mod PROC
     push ax
@@ -415,10 +567,10 @@ handle_mod_00 PROC
         add bx, 06h
     loop _handle_mod_00_array_loop
 
-    cmp al, 06h
-    je _handle_mod_00_spec_case
-
     _handle_mod_00_opcode_found:
+        cmp al, 06h
+        je _handle_mod_00_spec_case
+
         inc bx
         mov dx, bx
         mov ah, 40h
@@ -430,19 +582,184 @@ handle_mod_00 PROC
 
         ret
 
+    ;; when rm 110, direct address
     _handle_mod_00_spec_case:
-        cmp ds:[_w], 0h
-        je
+        call handle_buffer ;; pasiimu kitus du baitus
+        mov al, byte ptr ds:[si]
+
+        call handle_buffer
+        mov ah, byte ptr ds:[si]
+
+        call print_ax_hex
+
+        COMMA
+
+        ret
+
+        ;; cia reikia skirti du baitus ?? ir is kazkur patraukt ju reiksme? poslinkis?
 
 handle_mod_00 ENDP
 
 
+;; procedure to print ax
+print_ax_hex PROC
+	push ax	 ; will need it later
+
+	; parse and print ah
+	shr ax, 8 ;; byte shift to right to make printing easy
+	mov bh, 16 ;; divide to get hex
+	div bh ; al / bh    ah - remainder, al - quetient
+
+        push ax
+	;mov bl, ah ; save ah for later (remainder)
+
+	;; handle quotient
+	cmp al, 10
+	jb _print_ax_hex_first_number
+
+	add al, 7
+
+	_print_ax_hex_first_number:
+        add al, '0'
+        mov byte ptr ds:[_offset_value], al
+        lea dx, _offset_value
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 1h
+        int 21h
+
+    ;; handle remainder
+        pop ax
+        mov bl, ah
+	cmp bl, 10
+	jb	_print_ax_hex_second_number
+
+	add bl, 7
+
+	_print_ax_hex_second_number:
+        add bl, '0'
+        mov byte ptr ds:[_offset_value], bl
+        lea dx, _offset_value
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 1h
+        int 21h
+
+	; parse and print al
+	pop ax
+	and ax, 00FFh ;; and with 00001111 to unmask the last bits of ax
+	mov bh, 16
+	div bh
+	;; dividing by 16
+
+	;mov bl, ah ; save ah for later
+        push ax
+
+	;; print quotient
+	cmp al, 10
+	jb _print_ax_hex_third_number
+
+	add al, 7 ;; if letter add 7
+
+	_print_ax_hex_third_number:
+        add al, '0'
+        mov byte ptr ds:[_offset_value], al
+        lea dx, _offset_value
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 1h
+        int 21h
+
+    ;; print remainder
+        pop ax
+        mov bl, ah
+	cmp bl, 10
+	jb	_print_ax_hex_fourth_number
+
+	add bl, 7
+
+	_print_ax_hex_fourth_number:
+        add bl, '0'
+        mov byte ptr ds:[_offset_value], bl
+        lea dx, _offset_value
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 1h
+        int 21h
+
+	ret
+
+print_ax_hex ENDP
+
+
 handle_mod_01 PROC
+    mov cx, 08h
+    mov al, ds:[_rm]
+
+    lea bx, reg_memory_table_mod_01_10
+
+    _handle_mod_01_array_loop:
+        cmp al, byte ptr [bx]
+        je _handle_mod_01_opcode_found
+
+        add bx, 07h
+    loop _handle_mod_01_array_loop
+
+    _handle_mod_01_opcode_found:
+        inc bx
+        mov dx, bx
+        mov ah, 40h
+        mov bx, 0001h ;; kol kas i stdout
+        mov cx, 6h ;;kiek bitu rasysim
+        int 21h
+
+        call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
+        mov al, byte ptr ds:[si]
+
+        mov ah, 00h
+        call print_ax_hex
+
+        COMMA
+
+    ;; 1 baito poslinkis
     ret
 handle_mod_01 ENDP
 
 
 handle_mod_10 PROC
+    mov cx, 08h
+    mov al, ds:[_rm]
+
+    lea bx, reg_memory_table_mod_01_10
+
+    _handle_mod_10_array_loop:
+        cmp al, byte ptr [bx]
+        je _handle_mod_10_opcode_found
+
+        add bx, 07h
+    loop _handle_mod_10_array_loop
+
+    _handle_mod_10_opcode_found:
+        inc bx
+        mov dx, bx
+        mov ah, 40h
+        mov bx, 0001h ;; kol kas i stdout
+        mov cx, 6h ;;kiek bitu rasysim
+        int 21h
+
+        call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
+        mov al, byte ptr ds:[si]
+
+        call handle_buffer
+        mov ah, byte ptr ds:[si]
+
+        call print_ax_hex
+
+        COMMA
+
+    ;; 1 baito poslinkis
+    ret
+    ;; dvieju baitu poslinkis
     ret
 handle_mod_10 ENDP
 
@@ -496,6 +813,7 @@ handle_buffer PROC
 handle_buffer ENDP
 
 read_buffer PROC
+    push ax
     mov ah, 3Fh
     lea dx, buffer
     mov cx, BUFFER_READ_SIZE
@@ -506,7 +824,7 @@ read_buffer PROC
 
     lea si, buffer
     mov ds:[current_buffer_size], al
-
+    pop ax
     ret
 read_buffer ENDP
 

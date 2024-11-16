@@ -60,19 +60,14 @@ main    proc    far        ; <=== Entry point (main function)
 
 	add CS:[SI], ax
 
-	rol byte ptr [bx+si], 1
-	ror word ptr [bx+di], 1
-	rcl word ptr [bp+si], 1
-	rcr byte ptr [bp+di], 1
-	shl byte ptr [si], 1
-	shr byte ptr [di], 1
+	rol byte ptr [bx+si+01h], 1
+	ror word ptr [bx+di+01h], 1
+	rcl word ptr [bp+si+02h], 1
+	rcr byte ptr [bp+di+02h], 1
+	shl byte ptr [si+0Fh], 1
+	shr byte ptr [di+01h], 1
 	sar byte ptr ds:[01], 1
-	sar byte ptr [bx], 1
-
-	
-
-
-
+	sar byte ptr [bp+2], 1
 
     mov    ax,4c00H
     int    21H
