@@ -28,8 +28,6 @@ main    proc    far        ; <=== Entry point (main function)
 	nop
 	nop
 
-	xor word ptr cs:[bx+5], 5
-
 	nop
 	nop
 	nop
@@ -45,6 +43,31 @@ main    proc    far        ; <=== Entry point (main function)
 	nop
 
 	mov word ptr ds:[2], 0FFFh
+
+	nop
+
+	add DS:[di], ax
+
+	nop
+
+	add SS:[SI], bx
+
+	nop
+
+	add ES:[SI], cx
+
+	nop
+
+	add CS:[SI], ax
+
+	rol byte ptr [bx+si], 1
+	ror word ptr [bx+di], 1
+	rcl word ptr [bp+si], 1
+	rcr byte ptr [bp+di], 1
+	shl byte ptr [si], 1
+	shr byte ptr [di], 1
+	sar byte ptr ds:[01], 1
+	sar byte ptr [bx], 1
 
 	
 
@@ -64,6 +87,8 @@ main    proc    far        ; <=== Entry point (main function)
 	scasb
 	scasw
 
+
+	xor word ptr cs:[bx+5], 5
 
 main    endp                ;<=== End function
 	
