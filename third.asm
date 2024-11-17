@@ -1,7 +1,14 @@
 .model small
 .stack 100H
 
+;; ------------------------------------------------------------
+;; |    /\  /\         /\       /----  |--\  /---\     /----- |
+;; |   /  \/  \       /  \     /       |__|  |   |     |      |
+;; |  /        \     /----\    \       |\    |   |     \----\ |
+;; | /          \   /      \    \----  | \   \---/      ----/ |
+;; ------------------------------------------------------------
 BUFFER_READ_SIZE = 02H
+
 NEW_LINE macro
         mov dl, 13
         mov ah, 02h
@@ -49,8 +56,10 @@ JUMPS
 err_s db 'Source file could not be opened', 13, 10, '$'
 err_d db 'Destination file could not be opened', 13, 10, '$'
 
-command_not_identified db 'This command could not be identified', 13, 10
+command_not_identified db 'This command could not be identified'
     command_not_identified_len  equ $ - command_not_identified
+msg_bytes_parsed db 'Bytes parsed:'
+    msg_bytes_parsed_len equ $ - msg_bytes_parsed
 
 msg db 'helloooo', 13, 10, '$'
 
@@ -89,6 +98,10 @@ _xor db 'xor$'
 _jmp db 'jmp$'
 
 _address dw 00FFh
+
+bytes_bfr db 16 dup (?)
+
+bytes_bfr_size db 0
 
 
 
@@ -175,7 +188,6 @@ START:
 
 ;; liko JMP, ROL, XOR, SAR, segmento registro keitimo prefiksaa
 
-
 mov ax, @data
 mov es, ax
 
@@ -186,6 +198,29 @@ call read_filename
 
 cmp byte ptr es:[destF], 0
 je stop
+
+push ds
+
+mov ax, @data
+mov ds, ax
+
+lea dx, ds:[destF]
+mov ah, 3Ch
+xor cx, cx
+mov al, 00h
+int 21h
+
+pop ds
+
+jc err_dest
+
+mov [destHandle], ax
+
+;; redirect file to stdout
+mov bx, ax
+mov ah, 46h
+mov cx, 0001h
+int 21h
 
 lea di, es:[sourceF]
 call read_filename
@@ -211,6 +246,9 @@ source_from_file:
 
     call read_buffer
     inc [_address]
+
+    mov al, byte ptr ds:[si]
+    call mov_current_byte_buff_out
 
 ; dailas atidarytas
 ; i si ikelta buffer adresas --> t.y. ikeltas pirmas baitas kuri reik parsint
@@ -250,6 +288,11 @@ parse_loop:
     mov cx, command_not_identified_len
     int 21h
 
+    SPACE
+    call print_byte_buff
+
+    NEW_LINE
+
     jmp continue_loop
 
     _1010:
@@ -261,14 +304,60 @@ parse_loop:
         jmp continue_loop
 
     _1101:
-        call handle_1101
+        mov al, byte ptr ds:[si]
+        and al, 0Fh
+        shr al, 2h
+        cmp al, 00h
+        je _parse_loop_handle_1101
+
+        lea dx, command_not_identified
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, command_not_identified_len
+        int 21h
+
+        SPACE
+        call print_byte_buff
+
+        NEW_LINE
+
         jmp continue_loop
 
+        _parse_loop_handle_1101:
+            call handle_1101
+            jmp continue_loop
+
     _1000:
+        mov al, byte ptr ds:[si]
+        and al, 0Fh
+        shr al, 2h
+
+        cmp al, 0h
+        je _parse_loop_handle_1000
+
+        lea dx, command_not_identified
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, command_not_identified_len
+        int 21h
+
+        SPACE
+        call print_byte_buff
+
+        NEW_LINE
+
+
+        jmp continue_loop
+
+
+
+        _parse_loop_handle_1000:
+
         call handle_1000
         jmp continue_loop
 
     _0011:
+                mov al, byte ptr ds:[si]
 
         and al, 0Ch
         shr al, 2h
@@ -276,8 +365,23 @@ parse_loop:
         cmp al, 0h
         je _parse_loop_handle_0011
 
-        cmp al, 1h
+        mov al, byte ptr ds:[si]
+        and al, 0Fh
+        shr al, 1h
+        cmp al, 2h
         je _parse_loop_handle_0011
+
+        lea dx, command_not_identified
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, command_not_identified_len
+        int 21h
+
+        SPACE
+        call print_byte_buff
+        NEW_LINE
+
+
 
         ;; if not the xors continue
         jmp continue_loop
@@ -300,6 +404,17 @@ parse_loop:
         cmp al, 0Bh
         je _parse_loop_handle_1110
 
+        lea dx, command_not_identified
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, command_not_identified_len
+        int 21h
+
+        SPACE
+        call print_byte_buff
+        NEW_LINE
+
+
         jmp continue_loop
 
         _parse_loop_handle_1110:
@@ -311,10 +426,25 @@ parse_loop:
 
         and al, 0Eh
         cmp al, 0Eh
-        jne continue_loop
+        je _parse_loop_handle_1111_1111
 
-        call handle_1111_1111
+        lea dx, command_not_identified
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, command_not_identified_len
+        int 21h
+
+        SPACE
+        call print_byte_buff
+        NEW_LINE
+
+
         jmp continue_loop
+
+        _parse_loop_handle_1111_1111:
+
+            call handle_1111_1111
+            jmp continue_loop
 
 
 
@@ -322,8 +452,6 @@ parse_loop:
 continue_loop:
     ;mov ax, @data
     ;mov ds, ax
-
-
     call handle_buffer
     jmp parse_loop
 
@@ -363,6 +491,8 @@ handle_1010 PROC
         mov ah, 02h
         int 21h 
 
+        SPACE
+        call print_byte_buff
         ;; newline
         NEW_LINE
 
@@ -375,6 +505,8 @@ handle_1010 PROC
         mov ah, 02h
         int 21h 
 
+        SPACE
+        call print_byte_buff
         NEW_LINE
 
 
@@ -408,6 +540,9 @@ handle_001sr PROC
         mov cx, 03h ;;kiek bitu rasysim
         int 21h
 
+
+        SPACE
+        call print_byte_buff
         ;; newline
         NEW_LINE
 
@@ -458,6 +593,7 @@ handle_1101 PROC
         ;; paskutinis zinsnis, ziuret pagal v reiksme ar bus , CL ar bus , 1
 
         call handle_mod
+        COMMA
 
         SPACE
 
@@ -465,6 +601,8 @@ handle_1101 PROC
         je print_CL
 
         ONE
+        H
+
         jmp continue
 
 
@@ -476,6 +614,8 @@ handle_1101 PROC
             int 21h
 
         continue:
+            SPACE
+            call print_byte_buff
             NEW_LINE
             ret
 
@@ -584,6 +724,8 @@ handle_1000 PROC
 
 
         _handle_1000_end:
+            SPACE
+            call print_byte_buff
             NEW_LINE
             ret
 
@@ -601,10 +743,8 @@ handle_0011 PROC
         cmp al, 0h
         je _handle_1000_00dw
 
-
         cmp al, 1h
         je _handle_1000_010w
-
 
         ret
 
@@ -694,6 +834,8 @@ handle_0011 PROC
 
 
         _handle_0011_end:
+            SPACE
+            call print_byte_buff
             NEW_LINE
             ret
 
@@ -734,6 +876,8 @@ handle_1110 PROC
 
             call print_ax_hex
 
+            SPACE
+            call print_byte_buff
             NEW_LINE
 
             ret
@@ -758,6 +902,9 @@ handle_1110 PROC
 
 
             call print_ax_hex
+
+            SPACE
+            call print_byte_buff
             NEW_LINE
 
             ;; keturi baitus atspausdint
@@ -771,7 +918,8 @@ handle_1110 PROC
             ;xor ah, ah
 
             ;call print_ax_hex
-
+            SPACE
+            call print_byte_buff
             NEW_LINE
 
 
@@ -810,15 +958,17 @@ handle_1111_1111 PROC
         mov cx, 04h ;;kiek bitu rasysim
         int 21h
 
-        SPACE
-
         mov al, byte ptr ds:[si]
 
         call get_mod
+
         call get_rm
+        SPACE
 
         call handle_mod
 
+        SPACE
+        call print_byte_buff
         NEW_LINE
 
     _handle_1111_1111_end:
@@ -1113,8 +1263,11 @@ print_ax_hex PROC
         mov bx, 0001h
         mov cx, 1h
         int 21h
+        H
 
 	ret
+
+	H
 
 print_ax_hex ENDP
 
@@ -1165,6 +1318,8 @@ print_ax_hex_1_byte PROC
 
 	; parse and print al
 	pop ax
+
+	H
 
 	ret
 
@@ -1283,6 +1438,9 @@ handle_buffer PROC
     call read_buffer ;; if nothing more to read
 
     handle_buffer_return:
+        mov al, byte ptr ds:[si]
+
+        call mov_current_byte_buff_out
         ret
 
 handle_buffer ENDP
@@ -1369,11 +1527,90 @@ skip_spaces ENDP
 print_address PROC
     mov ax, word ptr ds:[_address]
     call print_ax_hex
-    H
     COLON
     SPACE
     ret
 print_address ENDP
+
+
+mov_current_byte_buff_out PROC
+	push si ax	 ; will need it later
+
+	lea si, ds:[bytes_bfr]
+
+	mov cl, byte ptr ds:[bytes_bfr_size]
+	xor ch, ch
+
+	add si, cx
+
+	; parse and print ah
+	;shr ax, 8 ;; byte shift to right to make printing easy
+	xor ah, ah
+	mov bh, 16 ;; divide to get hex
+	div bh ; al / bh    ah - remainder, al - quetient
+
+        push ax
+	;mov bl, ah ; save ah for later (remainder)
+
+	;; handle quotient
+	cmp al, 10
+	jb _move_current_byte_buff_out_first_number
+
+	add al, 7
+
+	_move_current_byte_buff_out_first_number:
+        add al, '0'
+        mov byte ptr [si], al
+        inc si
+        inc byte ptr ds:[bytes_bfr_size]
+
+
+    ;; handle remainder
+        pop ax
+        mov bl, ah
+	cmp bl, 10
+	jb	_move_current_byte_buff_out_second_number
+	add bl, 7
+
+	_move_current_byte_buff_out_second_number:
+        add bl, '0'
+        mov byte ptr [si], bl
+        inc si
+        inc byte ptr ds:[bytes_bfr_size]
+
+
+	; parse and print al
+	pop ax si
+
+	ret
+
+mov_current_byte_buff_out ENDP
+
+print_byte_buff PROC
+
+    lea dx, msg_bytes_parsed
+    mov ah, 40h
+    mov bx, 0001h
+    mov cx, msg_bytes_parsed_len
+    int 21h
+
+    SPACE
+
+
+    lea dx, bytes_bfr
+    mov ah, 40h
+    mov bx, 0001h ;; kol kas i stdout
+    xor ch, ch
+    mov cl, byte ptr ds:[bytes_bfr_size] ;;kiek bitu rasysim
+    int 21h
+
+    H
+
+    mov byte ptr ds:[bytes_bfr_size], 0h
+    ret
+
+
+print_byte_buff ENDP
 
 
 ;; terminate program
