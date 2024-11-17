@@ -31,14 +31,26 @@ ONE macro
         int 21h
 endm
 
+COLON macro
+    mov dl, 58
+    mov ah, 02h
+    int 21h
+endm
 
-
+H macro
+    mov dl, 'h'
+    mov ah, 02h
+    int 21h
+endm
 
 JUMPS
 .data
 
 err_s db 'Source file could not be opened', 13, 10, '$'
 err_d db 'Destination file could not be opened', 13, 10, '$'
+
+command_not_identified db 'This command could not be identified', 13, 10
+    command_not_identified_len  equ $ - command_not_identified
 
 msg db 'helloooo', 13, 10, '$'
 
@@ -76,6 +88,8 @@ _xor db 'xor$'
 
 _jmp db 'jmp$'
 
+_address dw 00FFh
+
 
 
 
@@ -104,7 +118,9 @@ opp_1000 db 00h, 'add'
         db 07h, 'cmp'
 
 
-opp_1111_1111 db 02h, 'call'
+opp_1111_1111 db 00h, 'inc '
+                db 01h, 'dec '
+                db 02h, 'call'
                 db 03h, 'call'
                 db 04h, 'jmp '
                 db 05h, 'jmp '
@@ -194,10 +210,13 @@ source_from_file:
     mov [sourceHandle], ax
 
     call read_buffer
+    inc [_address]
 
 ; dailas atidarytas
 ; i si ikelta buffer adresas --> t.y. ikeltas pirmas baitas kuri reik parsint
 parse_loop:
+    call print_address
+
     mov bl, byte ptr ds:[si]
     and bl, 0E7h ;; for identifying segment reg change prefix
     cmp bl, 26h
@@ -223,6 +242,13 @@ parse_loop:
 
     cmp al, 0Fh
     je _1111_1111
+
+
+    lea dx, command_not_identified
+    mov ah, 40h
+    mov bx, 0001h
+    mov cx, command_not_identified_len
+    int 21h
 
     jmp continue_loop
 
@@ -283,8 +309,8 @@ parse_loop:
     _1111_1111:
         mov al, byte ptr [si]
 
-        and al, 0Fh
-        cmp al, 0Fh
+        and al, 0Eh
+        cmp al, 0Eh
         jne continue_loop
 
         call handle_1111_1111
@@ -294,6 +320,10 @@ parse_loop:
 
 
 continue_loop:
+    ;mov ax, @data
+    ;mov ds, ax
+
+
     call handle_buffer
     jmp parse_loop
 
@@ -737,9 +767,10 @@ handle_1110 PROC
             call handle_buffer
             mov al, byte ptr ds:[si]
 
-            xor ah, ah
+                call print_ax_hex_1_byte
+            ;xor ah, ah
 
-            call print_ax_hex
+            ;call print_ax_hex
 
             NEW_LINE
 
@@ -750,16 +781,18 @@ handle_1110 PROC
 handle_1110 ENDP
 
 handle_1111_1111 PROC
+    mov al, byte ptr ds:[si]
+
+    call get_w
+
     call handle_buffer
     mov al, byte ptr ds:[si]
 
     and al, 38h
-    shr al, 03h
-    cmp al, 2h
-    jb _handle_1111_1111_end
+    shr al, 3h
 
     lea bx, opp_1111_1111
-    mov cx, 05h
+    mov cx, 07h
 
     _handle_1111_1111_array_loop:
         cmp al, byte ptr [bx]
@@ -1085,6 +1118,58 @@ print_ax_hex PROC
 
 print_ax_hex ENDP
 
+;; procedure to print ax
+print_ax_hex_1_byte PROC
+	push ax	 ; will need it later
+
+	; parse and print ah
+	;shr ax, 8 ;; byte shift to right to make printing easy
+	xor ah, ah
+	mov bh, 16 ;; divide to get hex
+	div bh ; al / bh    ah - remainder, al - quetient
+
+        push ax
+	;mov bl, ah ; save ah for later (remainder)
+
+	;; handle quotient
+	cmp al, 10
+	jb _print_ax_hex_1_byte_first_number
+
+	add al, 7
+
+	_print_ax_hex_1_byte_first_number:
+        add al, '0'
+        mov byte ptr ds:[_offset_value], al
+        lea dx, _offset_value
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 1h
+        int 21h
+
+    ;; handle remainder
+        pop ax
+        mov bl, ah
+	cmp bl, 10
+	jb	_print_ax_hex_1_byte_second_number
+
+	add bl, 7
+
+	_print_ax_hex_1_byte_second_number:
+        add bl, '0'
+        mov byte ptr ds:[_offset_value], bl
+        lea dx, _offset_value
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 1h
+        int 21h
+
+	; parse and print al
+	pop ax
+
+	ret
+
+print_ax_hex_1_byte ENDP
+
 
 handle_mod_01 PROC
     mov cx, 08h
@@ -1110,8 +1195,9 @@ handle_mod_01 PROC
         call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
         mov al, byte ptr ds:[si]
 
-        mov ah, 00h
-        call print_ax_hex
+            call print_ax_hex_1_byte
+        ;mov ah, 00h
+        ;call print_ax_hex
 
     ;; 1 baito poslinkis
     ret
@@ -1188,6 +1274,7 @@ handle_mod_11 ENDP
 
 
 handle_buffer PROC
+    inc [_address]
     inc si
     dec [current_buffer_size]
     cmp byte ptr [current_buffer_size], 0
@@ -1279,6 +1366,14 @@ skip_spaces PROC
         ret
 skip_spaces ENDP
 
+print_address PROC
+    mov ax, word ptr ds:[_address]
+    call print_ax_hex
+    H
+    COLON
+    SPACE
+    ret
+print_address ENDP
 
 
 ;; terminate program
