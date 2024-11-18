@@ -70,7 +70,6 @@ input_command_line db 'Please enter commands in HEX to disassemble:', 13, 10, '$
 buffer_reading_cmnd_line db 255, 0, 255 dup(?)
 
 
-
 ;; handling files
 sourceF db 13 dup(0)
 sourceHandle dw ?
@@ -101,7 +100,8 @@ _cl db 'cl$'
 _xor db 'xor$'
 _jmp db 'jmp$'
 
-temp_file db 'temp.txt', 0
+temp_file db 'temp.com', 0
+temp_file_name_len equ $ - temp_file
 
 
 ;; for handling printing address or bytes parses
@@ -207,8 +207,8 @@ je help
 lea di, es:[destF]
 call read_filename
 
-;cmp byte ptr es:[destF], 0
-;je stop
+cmp byte ptr es:[destF], 0
+je aaa9
 
 push ds
 
@@ -230,6 +230,7 @@ mov es:[destHandle], ax
 ;; redirect file to stdout
 
 ;; read source file name
+aaa9:
 lea di, es:[sourceF]
 call read_filename
 
@@ -1725,7 +1726,7 @@ print_byte_buff ENDP
 
 
 read_command_line PROC
-    push ds
+    push ds es
     mov ax, @data
     mov ds, ax
 
@@ -1738,18 +1739,23 @@ read_command_line PROC
     int 21h
 
     call check_buffer
-    ;; atspausidnt zinute pls ivesk cia
-    ;; nuskaityti ka iraso i kazkoki BUFFER_READ_SIZE
-    ;; pereit per bufer ir jei ivestas ne 16taines - atspausinf error msg ir baigt darba
-    ;; sukurti temp faila ir i ji nurasyto
-    ;; sourec file'a nukreipti i sita faila
 
-    pop ds
+    ;; perkelti temp_file i sourceF
+    mov ax, @data
+    mov es, ax
+    lea si, temp_file
+    lea di, sourceF
+    mov cx, temp_file_name_len
+
+    rep movsb
+
+    pop es ds
     ret
 read_command_line ENDP
 
 
 check_buffer PROC
+    push bx
     xor cx, cx
     mov ah, 3Ch
     lea dx, temp_file
@@ -1763,30 +1769,93 @@ check_buffer PROC
 
     ;; susikurt temp faila ir atisdaryt reaad write
 
+    lea bx, buffer_reading_cmnd_line
+    add bx, 02h
+
     check_buffer_loop:
-        ;; patikrinti ar yra simbolis nuo A-
-        ;; paverst i koda :) kazkiek atimt
+        mov al, byte ptr [bx]
 
-        ;; patkrint ar a-f
-        ;; kazkiek atimt
+        call convert_to_real_expression
+        mov ah, al
 
-        ;; patikrint ar 0-9
-        ;; atimt '0'
+        dec cx
+        cmp cx, 0
+        je one_missing
 
-        ;; jeigu komanda yra daugiau uz 16 --> end
-        ;; kitu atveju irasyti i temp faila
+        inc bx
+        mov al, byte ptr [bx]
+        call convert_to_real_expression
+
+        shl ah, 4
+        and al, 0Fh
+        or al, ah
+        jmp write
+
+        one_missing:
+        shl ah, 4
+        xor al, al
+        or al, ah
+
+        write:
+        push bx cx
+        mov byte ptr ds:[buffer], al
 
         mov ah, 40h
         mov bx, word ptr ds:[sourceHandle]
-        lea dx, buffer_reading_cmnd_line
-        add dx, cx
+        mov cx, 0001h
+        lea dx, buffer
         int 21h
 
+        pop cx bx
+
+        cmp cx, 0
+        je end_loop
+
+        inc bx
     loop check_buffer_loop
+
+    end_loop:
+    mov bx, word ptr ds:[sourceHandle]
+    mov ah, 3Eh
+    int 21h
+
+    pop bx
     ret
 check_buffer ENDP
 
+; expects argument to be in al
+; return argument in al
+convert_to_real_expression PROC
+    cmp al, 'a'
+    jb big_letter
 
+    cmp al, 'f'
+    ja err_source
+
+    sub al, 87
+    jmp _convert_to_real_expression_ret
+
+    big_letter:
+    cmp al, 'A'
+    jb num
+
+    cmp al, 'F'
+    ja err_source
+
+    sub al, 55
+    jmp _convert_to_real_expression_ret
+
+    num:
+    cmp al, '0'
+    jb err_source
+
+    cmp al, '9'
+    ja err_source
+
+    sub al, 48
+    _convert_to_real_expression_ret:
+    ret
+convert_to_real_expression ENDP
 ;; help message print
 help:
     mov ax, @data
@@ -1801,6 +1870,19 @@ help:
 
 ;; terminate program
 stop:
+    mov ah, 3Eh
+    mov bx, word ptr [sourceHandle]
+    int 21h
+
+    ; delete temp file either way
+    mov ah, 41h
+    lea dx, temp_file
+    int 21h
+
+    mov ah, 3Eh
+    mov bx, word ptr [destHandle]
+    int 21h
+
     mov ax, 4c00h 
     int 21h 
 
