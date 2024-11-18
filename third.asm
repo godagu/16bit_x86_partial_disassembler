@@ -56,6 +56,9 @@ JUMPS
 ;; error messages
 err_s db 'Source file could not be opened', 13, 10, '$'
 err_d db 'Destination file could not be opened', 13, 10, '$'
+msg_wrong_input db 'Wrong input. Make sure to enter values in the ranges 0-9, A-H, a-h', 13, 10, '$'
+
+msg_internal_err db 'Internal error. I suggest start crying.', 13, 10, '$'
 
 ;; other printed strings
 command_not_identified db 'This command could not be identified'
@@ -1760,7 +1763,7 @@ check_buffer PROC
     mov ah, 3Ch
     lea dx, temp_file
     int 21h
-    jc err_source
+    jc err_internal
 
     mov word ptr ds:[sourceHandle], ax
 
@@ -1830,7 +1833,7 @@ convert_to_real_expression PROC
     jb big_letter
 
     cmp al, 'f'
-    ja err_source
+    ja err_wrong_input
 
     sub al, 87
     jmp _convert_to_real_expression_ret
@@ -1840,17 +1843,17 @@ convert_to_real_expression PROC
     jb num
 
     cmp al, 'F'
-    ja err_source
+    ja err_wrong_input
 
     sub al, 55
     jmp _convert_to_real_expression_ret
 
     num:
     cmp al, '0'
-    jb err_source
+    jb err_wrong_input
 
     cmp al, '9'
-    ja err_source
+    ja err_wrong_input
 
     sub al, 48
     _convert_to_real_expression_ret:
@@ -1912,5 +1915,28 @@ err_source:
 
     mov ax, 4c01h ; return with 1
     int 21h
+
+err_wrong_input:
+    mov ax, @data
+    mov ds, ax
+
+    mov dx, offset msg_wrong_input
+    mov ah, 09h
+    int 21h
+
+    jmp stop
+
+err_internal:
+    mov ax, @data
+    mov ds, ax
+
+    mov dx, offset msg_internal_err
+    mov ah, 09h
+    int 21h
+
+    jmp stop
+
+
+
 
 end START
