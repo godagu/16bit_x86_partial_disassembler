@@ -24,8 +24,8 @@ main    proc    near        ; <=== Entry point (main function)
 ;
 ; 	b:
 
-	xor ax, 32h
-	;test cx, [bp+di]
+	;xor ax, 32h
+ 	test ax, 3Fh
 
 ; 	nop
 ; 	nop

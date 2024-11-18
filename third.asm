@@ -53,16 +53,25 @@ endm
 JUMPS
 .data
 
+;; error messages
 err_s db 'Source file could not be opened', 13, 10, '$'
 err_d db 'Destination file could not be opened', 13, 10, '$'
 
+;; other printed strings
 command_not_identified db 'This command could not be identified'
-    command_not_identified_len  equ $ - command_not_identified
+    command_not_identified_len  equ $ - command_not_identified ;; to get size
 msg_bytes_parsed db 'Bytes parsed:'
     msg_bytes_parsed_len equ $ - msg_bytes_parsed
 
-msg db 'helloooo', 13, 10, '$'
+about db 'This program disassembles some of x86_16bit commands', 13, 10, 'third.exe destinationFile sourceFile', 13, 10, 13, 10, 'third /? - help', 13, 10, '$'
 
+input_command_line db 'Please enter commands in HEX to disassemble:', 13, 10, '$'
+
+buffer_reading_cmnd_line db 255, 0, 255 dup(?)
+
+
+
+;; handling files
 sourceF db 13 dup(0)
 sourceHandle dw ?
 _next_file dw 0081h
@@ -78,34 +87,30 @@ symbol_w db 'w'
 symbol_b db 'b'
 
 _v db ?
-
 _mod db ?
-
 _rm db ?
-
 _s db ?
-
 _d db ?
-
 _reg db ?
 
 _offset_value db ?
 
+;; for single commands
+
 _cl db 'cl$'
-
 _xor db 'xor$'
-
 _jmp db 'jmp$'
 
+temp_file db 'temp.txt', 0
+
+
+;; for handling printing address or bytes parses
 _address dw 00FFh
-
 bytes_bfr db 16 dup (?)
-
 bytes_bfr_size db 0
 
 
-
-
+;; tables for different opp codes
 opp_1010 db 02h, 'movs'
          db 03h, 'cmps'
          db 05h, 'stos'
@@ -186,18 +191,24 @@ reg_memory_table_mod_01_10 db 00h,  'BX+SI+'
 .code
 START:
 
-;; liko JMP, ROL, XOR, SAR, segmento registro keitimo prefiksaa
+;; liko help msg, jei be parametru skaityt tiesiogiai is stdin
 
 mov ax, @data
 mov es, ax
 
 call skip_spaces
 
+;; if /? entered --> help
+mov ax, word ptr ds:[si]
+cmp ax, 3F2Fh
+je help
+
+;; read destination file name
 lea di, es:[destF]
 call read_filename
 
-cmp byte ptr es:[destF], 0
-je stop
+;cmp byte ptr es:[destF], 0
+;je stop
 
 push ds
 
@@ -214,20 +225,33 @@ pop ds
 
 jc err_dest
 
-mov [destHandle], ax
+mov es:[destHandle], ax
 
 ;; redirect file to stdout
-mov bx, ax
-mov ah, 46h
-mov cx, 0001h
-int 21h
 
+;; read source file name
 lea di, es:[sourceF]
 call read_filename
 
 ;; if not entered --> help
 cmp byte ptr es:[sourceF], 0
-je stop
+jne aaa10
+
+call read_command_line
+
+aaa10:
+
+cmp byte ptr es:[destF], 0
+je aaa11
+
+mov bx, word ptr es:[destHandle]
+mov ah, 46h
+mov cx, 0001h
+int 21h
+
+aaa11:
+
+;;JEI NEI VIENAS FAILAS NENURODYTAS SKAITYT IS SDIN???????
 
 push ds si
 
@@ -235,6 +259,7 @@ mov ax, @data
 mov ds, ax
 
 source_from_file:
+    ;; open file for reading
     lea dx, ds:[sourceF]
     mov ah, 3dh
     mov al, 00h
@@ -244,9 +269,11 @@ source_from_file:
 
     mov [sourceHandle], ax
 
+    ;; read first byte
     call read_buffer
     inc [_address]
 
+    ;; move to si first byte to read
     mov al, byte ptr ds:[si]
     call mov_current_byte_buff_out
 
@@ -255,11 +282,13 @@ source_from_file:
 parse_loop:
     call print_address
 
+    ;; identifying segment reg change prefix
     mov bl, byte ptr ds:[si]
     and bl, 0E7h ;; for identifying segment reg change prefix
     cmp bl, 26h
     je _001sr
 
+    ;; load again, shift right to get the first party
     mov al, byte ptr ds:[si]
     shr al, 04h
 
@@ -282,6 +311,7 @@ parse_loop:
     je _1111_1111
 
 
+    ; id none of the above, print commmand not identified
     lea dx, command_not_identified
     mov ah, 40h
     mov bx, 0001h
@@ -293,23 +323,88 @@ parse_loop:
 
     NEW_LINE
 
+    ;; read more
     jmp continue_loop
 
     _1010:
+        ;; MOVSB, MOVSW, CMPSB, CMPSW, STOSB, STOSW, LODSB, LODSW, SCASB, SCASW
+
+        mov al, byte ptr ds:[si]
+        and al, 0Fh
+        shr al, 1h
+        ;; chech if not 0100
+
+
+        ;; rule out test command
+        cmp al, 4h
+        je _parse_loop_handle_1010_not_found
+
+        ;; rule out mov acc <- memory
+        cmp al, 0h
+        je _parse_loop_handle_1010_not_found
+
+
+        ;;rule out mov memory <- acc
+        cmp al, 1h
+        je _parse_loop_handle_1010_not_found
+
+
         call handle_1010
         jmp continue_loop
 
+        _parse_loop_handle_1010_not_found:
+
+            lea dx, command_not_identified
+            mov ah, 40h
+            mov bx, 0001h
+            mov cx, command_not_identified_len
+            int 21h
+
+            SPACE
+            call print_byte_buff
+
+            NEW_LINE
+            jmp continue_loop
+
     _001sr:
-        call handle_001sr
+        ;; SEGMENT REGISTER CHANGE PREFIX
+        mov al, byte ptr ds:[si]
+        and al, 07h
+
+        ;; check if ends in 001x x110
+        cmp al, 6h
+        je _parse_loop_handle_001sr
+
+        ;; if not segment change prefix command, then print not identified
+        lea dx, command_not_identified
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, command_not_identified_len
+        int 21h
+
+        SPACE
+        call print_byte_buff
+
+        NEW_LINE
         jmp continue_loop
 
+        ;; if correct command continue
+        _parse_loop_handle_001sr:
+            call handle_001sr
+            jmp continue_loop
+
     _1101:
+        ;; ROl, ROR, RCL, RCR, SHL/SAL, SHR, SAR
         mov al, byte ptr ds:[si]
         and al, 0Fh
         shr al, 2h
+
+        ;; rule out aam, aad, xlat, esc
         cmp al, 00h
         je _parse_loop_handle_1101
 
+
+        ;; not identified
         lea dx, command_not_identified
         mov ah, 40h
         mov bx, 0001h
@@ -323,18 +418,23 @@ parse_loop:
 
         jmp continue_loop
 
+        ;; all good - continue
         _parse_loop_handle_1101:
             call handle_1101
             jmp continue_loop
 
     _1000:
+        ;; ADD, OR, ADC, SBB, AND, SUB, XOR, CMP
         mov al, byte ptr ds:[si]
         and al, 0Fh
         shr al, 2h
 
+        ;; rule out test through pop
         cmp al, 0h
         je _parse_loop_handle_1000
 
+
+        ;; not identified
         lea dx, command_not_identified
         mov ah, 40h
         mov bx, 0001h
@@ -345,32 +445,34 @@ parse_loop:
         call print_byte_buff
 
         NEW_LINE
-
-
         jmp continue_loop
 
 
-
+        ;; identified, lets go
         _parse_loop_handle_1000:
-
-        call handle_1000
-        jmp continue_loop
+            call handle_1000
+            jmp continue_loop
 
     _0011:
-                mov al, byte ptr ds:[si]
+        ;;XOR (reg->reg/mem), XOR (acc, betarpiskas)
+        mov al, byte ptr ds:[si]
 
         and al, 0Ch
         shr al, 2h
 
+        ;; check for XOR reg, reg/mem
         cmp al, 0h
         je _parse_loop_handle_0011
 
         mov al, byte ptr ds:[si]
         and al, 0Fh
         shr al, 1h
+
+        ;; check for XOR acc, immediate
         cmp al, 2h
         je _parse_loop_handle_0011
 
+        ;; all the ohters in 0011 fam not identified :(
         lea dx, command_not_identified
         mov ah, 40h
         mov bx, 0001h
@@ -381,29 +483,33 @@ parse_loop:
         call print_byte_buff
         NEW_LINE
 
-
-
         ;; if not the xors continue
         jmp continue_loop
 
+        ;; top security clearance checked. go through.
         _parse_loop_handle_0011:
             call handle_0011
             jmp continue_loop
 
     _1110:
+        ;; JMP (vidinis tiesioginis), JMP(isorinis tiesioginis), JMP (vidinis artimas)
         mov al, byte ptr ds:[si]
 
         and al, 0Fh
 
+        ;; check for JMP label (inner direct)
         cmp al, 09h
         je _parse_loop_handle_1110
 
+        ;; check for JMP label (outter indirect)
         cmp al, 0Ah
         je _parse_loop_handle_1110
 
+;       ;; check for JMP label (inner near)
         cmp al, 0Bh
         je _parse_loop_handle_1110
 
+        ;; if not any of the JMPs: mop mop moooop
         lea dx, command_not_identified
         mov ah, 40h
         mov bx, 0001h
@@ -417,17 +523,21 @@ parse_loop:
 
         jmp continue_loop
 
+        ;; if(JMP==true){}
         _parse_loop_handle_1110:
             call handle_1110
             jmp continue_loop
 
     _1111_1111:
+        ;; INC, DEC, CAll (in), CALL (out), JMP (in), JMP (out), PUSH
         mov al, byte ptr [si]
 
+        ;; rule out not in he 1111_111x fam
         and al, 0Eh
         cmp al, 0Eh
         je _parse_loop_handle_1111_1111
 
+        ;; not identified, amigo
         lea dx, command_not_identified
         mov ah, 40h
         mov bx, 0001h
@@ -438,23 +548,21 @@ parse_loop:
         call print_byte_buff
         NEW_LINE
 
-
         jmp continue_loop
 
+        ;; you are accepted for the job
         _parse_loop_handle_1111_1111:
 
             call handle_1111_1111
             jmp continue_loop
 
 
-
-
 continue_loop:
-    ;mov ax, @data
-    ;mov ds, ax
+    ;; get more bytes
     call handle_buffer
     jmp parse_loop
 
+;; baigiau cia
 
 handle_1010 PROC
     mov al, byte ptr ds:[si]
@@ -1381,7 +1489,7 @@ handle_mod_10 PROC
         int 21h
 
         call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
-        mov al, byte ptr ds:[si]
+        mov al, byte ptr ds:[si] ;;apkeiciau ah ir al!!!!!!!
 
         call handle_buffer
         mov ah, byte ptr ds:[si]
@@ -1429,6 +1537,7 @@ handle_mod_11 ENDP
 
 
 handle_buffer PROC
+push ax
     inc [_address]
     inc si
     dec [current_buffer_size]
@@ -1441,6 +1550,8 @@ handle_buffer PROC
         mov al, byte ptr ds:[si]
 
         call mov_current_byte_buff_out
+
+    pop ax
         ret
 
 handle_buffer ENDP
@@ -1611,6 +1722,81 @@ print_byte_buff PROC
 
 
 print_byte_buff ENDP
+
+
+read_command_line PROC
+    push ds
+    mov ax, @data
+    mov ds, ax
+
+    mov dx, offset input_command_line
+    mov ah, 09h
+    int 21h
+
+    lea dx, buffer_reading_cmnd_line
+    mov ah, 0Ah
+    int 21h
+
+    call check_buffer
+    ;; atspausidnt zinute pls ivesk cia
+    ;; nuskaityti ka iraso i kazkoki BUFFER_READ_SIZE
+    ;; pereit per bufer ir jei ivestas ne 16taines - atspausinf error msg ir baigt darba
+    ;; sukurti temp faila ir i ji nurasyto
+    ;; sourec file'a nukreipti i sita faila
+
+    pop ds
+    ret
+read_command_line ENDP
+
+
+check_buffer PROC
+    xor cx, cx
+    mov ah, 3Ch
+    lea dx, temp_file
+    int 21h
+    jc err_source
+
+    mov word ptr ds:[sourceHandle], ax
+
+    xor ch, ch
+    mov cl, byte ptr ds:[buffer_reading_cmnd_line + 1]
+
+    ;; susikurt temp faila ir atisdaryt reaad write
+
+    check_buffer_loop:
+        ;; patikrinti ar yra simbolis nuo A-
+        ;; paverst i koda :) kazkiek atimt
+
+        ;; patkrint ar a-f
+        ;; kazkiek atimt
+
+        ;; patikrint ar 0-9
+        ;; atimt '0'
+
+        ;; jeigu komanda yra daugiau uz 16 --> end
+        ;; kitu atveju irasyti i temp faila
+
+        mov ah, 40h
+        mov bx, word ptr ds:[sourceHandle]
+        lea dx, buffer_reading_cmnd_line
+        add dx, cx
+        int 21h
+
+    loop check_buffer_loop
+    ret
+check_buffer ENDP
+
+
+;; help message print
+help:
+    mov ax, @data
+    mov ds, ax
+
+    mov dx, offset about
+    mov ah, 09h
+    int 21h
+
+    jmp stop
 
 
 ;; terminate program

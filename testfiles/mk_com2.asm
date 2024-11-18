@@ -18,7 +18,9 @@ main    proc    far        ; <=== Entry point (main function)
 
     push [bp+di+1111h]
 
-    push es:[1]
+    push es:[2]
+
+    inc es:[1]
 
     inc al
     inc dx
