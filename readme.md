@@ -1,6 +1,7 @@
 # Hi, comeback later
 
 Tested on DosBox version 0.74 using TASM version 3.1 and TLINK version 3.0
+Using Ubuntu 24.01.1 LTS x86_64
 
 ## Commands completed:
 - jmp

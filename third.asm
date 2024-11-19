@@ -190,6 +190,13 @@ bytes_bfr db 16 dup (?)
 bytes_bfr_size db 0
 
 
+; db       .d88b.   .d88b.  db   dD  db    db d8888b.      d888888b  .d8b.  d8888b. db      d88888b .d8888.
+; 88      .8P  Y8. .8P  Y8. 88 ,8P'  88    88 88  `8D      `~~88~~' d8' `8b 88  `8D 88      88'     88'  YP
+; 88      88    88 88    88 88,8P    88    88 88oodD'         88    88ooo88 88oooY' 88      88ooooo `8bo.
+; 88      88    88 88    88 88`8b    88    88 88~~~           88    88~~~88 88~~~b. 88      88~~~~~   `Y8b.
+; 88booo. `8b  d8' `8b  d8' 88 `88.  88b  d88 88              88    88   88 88   8D 88booo. 88.     db   8D
+; Y88888P  `Y88P'   `Y88P'  YP   YD  ~Y8888P' 88              YP    YP   YP Y8888P' Y88888P Y88888P `8888Y'
+
 ;; tables for different opp codes
 opp_1010 db 02h, 'movs'
          db 03h, 'cmps'
