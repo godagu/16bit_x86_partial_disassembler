@@ -103,7 +103,9 @@ _cl db 'cl$'
 _xor db 'xor$'
 _jmp db 'jmp$'
 
-temp_file db 'temp.com', 0
+
+;;
+temp_file db 'xy5.tt', 0 ;; keiciau cia
 temp_file_name_len equ $ - temp_file
 
 
@@ -194,8 +196,6 @@ reg_memory_table_mod_01_10 db 00h,  'BX+SI+'
 .code
 START:
 
-;; liko help msg, jei be parametru skaityt tiesiogiai is stdin
-
 mov ax, @data
 mov es, ax
 
@@ -211,7 +211,7 @@ lea di, es:[destF]
 call read_filename
 
 cmp byte ptr es:[destF], 0
-je aaa9
+je des_file_not_specified
 
 push ds
 
@@ -230,37 +230,35 @@ jc err_dest
 
 mov es:[destHandle], ax
 
-;; redirect file to stdout
-
 ;; read source file name
-aaa9:
-lea di, es:[sourceF]
-call read_filename
+des_file_not_specified:
+    lea di, es:[sourceF]
+    call read_filename
 
-;; if not entered --> help
-cmp byte ptr es:[sourceF], 0
-jne aaa10
+    ;; see if source file is specidied
+    cmp byte ptr es:[sourceF], 0
+    jne source_file_specified
 
-call read_command_line
+    ;; if source file (and destination) not specified, read from command line
+    call read_command_line
 
-aaa10:
+source_file_specified:
+    ;; double check if destination file is specified
+    cmp byte ptr es:[destF], 0
+    je source_file_not_specified
 
-cmp byte ptr es:[destF], 0
-je aaa11
+    ;; if specified, then redirect the the stdout to file (if not, print to console)
+    mov bx, word ptr es:[destHandle]
+    mov ah, 46h
+    mov cx, 0001h
+    int 21h
 
-mov bx, word ptr es:[destHandle]
-mov ah, 46h
-mov cx, 0001h
-int 21h
 
-aaa11:
+source_file_not_specified:
+    push ds si
 
-;;JEI NEI VIENAS FAILAS NENURODYTAS SKAITYT IS SDIN???????
-
-push ds si
-
-mov ax, @data
-mov ds, ax
+    mov ax, @data
+    mov ds, ax
 
 source_from_file:
     ;; open file for reading
@@ -566,8 +564,7 @@ continue_loop:
     call handle_buffer
     jmp parse_loop
 
-;; baigiau cia
-
+;; procedures for handling different families
 handle_1010 PROC
     mov al, byte ptr ds:[si]
     and al, 0Fh ;; and with 00001111 to unmask the last 4 bits
@@ -579,10 +576,10 @@ handle_1010 PROC
     lea bx, opp_1010 ;; load array
     mov cx, 05h ;; how many elements in array
 
+    ;; loop througha array to find the needed command name
     _handle_1010_array_loop:
         cmp al, byte ptr [bx]
         je _handle_1010_opcode_found
-
 
         add bx, 05h ;; how long is the element in array
 
@@ -599,19 +596,20 @@ handle_1010 PROC
         cmp byte ptr ds:[_w], 00H ;;palyginam ar w yra 0 ar 1
         je write_b
 
+
+        ;; if not b, write w
         mov dl, byte ptr ds:[symbol_w]
         mov ah, 02h
         int 21h 
 
         SPACE
         call print_byte_buff
-        ;; newline
-        NEW_LINE
 
-        ;; irasyti w
+        NEW_LINE
 
         ret
        
+    ;; else write b symbol
     write_b:
         mov dl, byte ptr ds:[symbol_b]
         mov ah, 02h
@@ -621,11 +619,10 @@ handle_1010 PROC
         call print_byte_buff
         NEW_LINE
 
-
     ret
 
-
 handle_1010 ENDP
+
 
 handle_001sr PROC
     mov al, byte ptr ds:[si]
@@ -633,6 +630,7 @@ handle_001sr PROC
 
     shr al, 0003h ; byte shift to allign
 
+    ;; load and loop through segment prefix table
     lea bx, segment_prefix_table
     mov cx, 04h
 
@@ -648,14 +646,14 @@ handle_001sr PROC
         inc bx
         mov dx, bx
         mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
+        mov bx, 0001h
         mov cx, 03h ;;kiek bitu rasysim
         int 21h
 
 
         SPACE
         call print_byte_buff
-        ;; newline
+
         NEW_LINE
 
         ret
@@ -669,15 +667,18 @@ handle_1101 PROC
     call get_w
     call get_v
 
+    ;; load further byte
     call handle_buffer
     mov al, byte ptr ds:[si]
 
     call get_mod
     call get_rm
 
+    ;; unmask and shift bits
     and al, 38h
     shr al, 3
 
+    ;; loop through table
     lea bx, opp_1101
     mov cx, 07h
 
@@ -699,24 +700,21 @@ handle_1101 PROC
 
         SPACE
 
-        ;; handle_mod_00 through handle_mod_11
-        ;;
-
-        ;; paskutinis zinsnis, ziuret pagal v reiksme ar bus , CL ar bus , 1
-
+        ;; handle different mods
         call handle_mod
         COMMA
 
         SPACE
 
+        ;; check v and determine wheter to write , CL or , 1
         cmp byte ptr ds:[_v], 01h
         je print_CL
 
         ONE
+
         H
 
         jmp continue
-
 
         print_CL:
             lea dx, _cl
@@ -738,15 +736,18 @@ handle_1000 PROC
         call get_s
         call get_w
 
+        ;; load further bytes
         call handle_buffer
         mov al, byte ptr ds:[si]
 
         call get_mod
         call get_rm
 
+        ;; unmask and shift
         and al, 38h
         shr al, 3
 
+        ;; loop through array
         lea bx, opp_1000
         mov cx, 08h
 
@@ -768,11 +769,9 @@ handle_1000 PROC
 
             SPACE
 
-
             call handle_mod
 
             COMMA
-
 
             SPACE
             ;; s = 0, w = 1 skaitom 2 baitus
@@ -787,9 +786,11 @@ handle_1000 PROC
             call handle_buffer
             mov al, byte ptr ds:[si]
 
+            ;; if first bit is one, ten add FF
             cmp al, 80h
             jae _handle_1000_spec_case
 
+            ;; if first bit is zero, add 00
             xor ah, ah
             call print_ax_hex
 
@@ -801,6 +802,7 @@ handle_1000 PROC
 
                 jmp _handle_1000_end
 
+            ;; other cases (described below)
             _handle_1000_w_0:
                 call handle_buffer
                 mov al, byte ptr ds:[si]
@@ -847,109 +849,116 @@ handle_1000 ENDP
 
 handle_0011 PROC
 
-      mov al, byte ptr ds:[si]
-        and al, 0Fh
+    mov al, byte ptr ds:[si]
+    and al, 0Fh
+    shr al, 2h
 
-        shr al, 2h
+    ;; two different commands cases
+    cmp al, 0h
+    je _handle_1000_00dw
 
-        cmp al, 0h
-        je _handle_1000_00dw
+    cmp al, 1h
+    je _handle_1000_010w
 
-        cmp al, 1h
-        je _handle_1000_010w
+            ;ret ;; should print a message command not undetified probably (should woek checked in the loop)
 
+    ;; XOR 1st case
+    _handle_1000_00dw:
+        mov al, byte ptr ds:[si]
+        call get_d
+        call get_w
+
+        ;; print xor command
+        lea dx, _xor
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 03h
+        int 21h
+
+        SPACE
+
+        ;; load other bytes
+        call handle_buffer
+        mov al, byte ptr ds:[si]
+
+        call get_mod
+        call get_reg
+        call get_rm
+
+        ;; d = 0 or d = 1, handle different cases
+        cmp [_d], 1h
+        je _handle_0011_d_1
+
+        ;; else handle d=0
+        call handle_mod
+
+        COMMA
+        SPACE
+
+        call handle_mod_11_reg
+
+        jmp _handle_0011_end
+
+    _handle_0011_d_1:
+        call handle_mod_11_reg
+
+        COMMA
+        SPACE
+
+        call handle_mod
+
+        jmp _handle_0011_end
+
+
+    ;; XOR 2nd case
+    _handle_1000_010w:
+        mov al, byte ptr ds:[si]
+        call get_w
+
+        ;; print xor command
+        lea dx, _xor
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 03h
+        int 21h
+
+        SPACE
+
+        ;; get ax from the table
+        lea dx, register_table_w_1
+        inc dx
+        mov ah, 40h
+        mov bx, 0001h
+        mov cx, 02h
+        int 21h
+
+        COMMA
+        SPACE
+
+        ;; load new bytes
+        call handle_buffer
+        mov al, byte ptr ds:[si]
+
+        xor ah, ah
+
+        ;; check w
+        cmp [_w], 0h
+        je _handle_1000_print_ax_hex
+
+        ;; if w = 1, load one more byte
+        call handle_buffer
+        mov ah, byte ptr ds:[si]
+
+
+        _handle_1000_print_ax_hex:
+            call print_ax_hex
+
+
+    _handle_0011_end:
+        SPACE
+        call print_byte_buff
+        NEW_LINE
         ret
-
-        _handle_1000_00dw:
-            mov al, byte ptr ds:[si]
-            call get_d
-            call get_w
-
-            lea dx, _xor
-            mov ah, 40h
-            mov bx, 0001h
-            mov cx, 03h
-            int 21h
-
-            SPACE
-
-            call handle_buffer
-            mov al, byte ptr ds:[si]
-
-            call get_mod
-            call get_reg
-            call get_rm
-
-
-            cmp [_d], 1h
-            je _handle_0011_d_1
-
-            ;; else handle d=1
-            call handle_mod
-
-            COMMA
-            SPACE
-
-            call handle_mod_11_reg
-
-            jmp _handle_0011_end
-
-        _handle_0011_d_1:
-            call handle_mod_11_reg
-
-            COMMA
-            SPACE
-
-            call handle_mod
-
-            jmp _handle_0011_end
-
-
-        _handle_1000_010w:
-            mov al, byte ptr ds:[si]
-            call get_w
-
-            lea dx, _xor
-            mov ah, 40h
-            mov bx, 0001h
-            mov cx, 03h
-            int 21h
-
-            SPACE
-
-            lea dx, register_table_w_1
-            inc dx
-            mov ah, 40h
-            mov bx, 0001h
-            mov cx, 02h
-            int 21h
-
-            COMMA
-            SPACE
-
-            call handle_buffer
-            mov al, byte ptr ds:[si]
-
-            xor ah, ah
-
-            cmp [_w], 0h
-            je _handle_1000_print_ax_hex
-
-
-            call handle_buffer
-            mov ah, byte ptr ds:[si]
-
-
-            _handle_1000_print_ax_hex:
-            ;; for bojb [bovb] ?????
-                call print_ax_hex
-
-
-        _handle_0011_end:
-            SPACE
-            call print_byte_buff
-            NEW_LINE
-            ret
 
 handle_0011 ENDP
 
@@ -967,6 +976,7 @@ handle_1110 PROC
         mov al, byte ptr ds:[si]
         and al, 0Fh
 
+        ;; check 3 different cases
         cmp al, 09h
         je _handle_1110_1001
 
@@ -978,6 +988,7 @@ handle_1110 PROC
 
 
         _handle_1110_1001:
+            ;; get 2 bytes
             call handle_buffer
             mov al, byte ptr ds:[si]
 
@@ -995,6 +1006,7 @@ handle_1110 PROC
             ret
 
         _handle_1110_1010:
+            ;; get 4 bytes
             call handle_buffer
             mov al, byte ptr ds:[si]
 
@@ -1019,38 +1031,36 @@ handle_1110 PROC
             call print_byte_buff
             NEW_LINE
 
-            ;; keturi baitus atspausdint
             ret
 
         _handle_1110_1011:
+            ;; get 1 byte
             call handle_buffer
             mov al, byte ptr ds:[si]
 
-                call print_ax_hex_1_byte
-            ;xor ah, ah
+            call print_ax_hex_1_byte
 
-            ;call print_ax_hex
             SPACE
             call print_byte_buff
             NEW_LINE
 
-
             ret
-
 
 handle_1110 ENDP
 
 handle_1111_1111 PROC
     mov al, byte ptr ds:[si]
-
     call get_w
 
+    ;; load more
     call handle_buffer
     mov al, byte ptr ds:[si]
 
+    ;; unmask and shift
     and al, 38h
     shr al, 3h
 
+     ;; loop till correct command found
     lea bx, opp_1111_1111
     mov cx, 07h
 
@@ -1066,20 +1076,21 @@ handle_1111_1111 PROC
         inc bx
         mov dx, bx
         mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
+        mov bx, 0001h
         mov cx, 04h ;;kiek bitu rasysim
         int 21h
 
         mov al, byte ptr ds:[si]
 
         call get_mod
-
         call get_rm
+
         SPACE
 
         call handle_mod
 
         SPACE
+
         call print_byte_buff
         NEW_LINE
 
@@ -1089,6 +1100,9 @@ handle_1111_1111 PROC
 
 handle_1111_1111 ENDP
 
+
+;; helper function for opp 0011
+;; prints register according to w value
 handle_mod_11_reg PROC
     mov cx, 08h
     mov al, ds:[_reg]
@@ -1121,7 +1135,7 @@ handle_mod_11_reg PROC
 
 handle_mod_11_reg ENDP
 
-
+;; handles r/m (register/memory) according to w
 handle_rm PROC
     mov cx, 08h
     mov al, ds:[_rm]
@@ -1146,14 +1160,15 @@ handle_rm PROC
         inc bx
         mov dx, bx
         mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
-        mov cx, 2h ;;kiek bitu rasysim
+        mov bx, 0001h
+        mov cx, 2h
         int 21h
 
         ret
 
 handle_rm ENDP
 
+;; getters for w, v, s, d
 get_w PROC
     push ax
         and al, 0001h
@@ -1178,23 +1193,18 @@ get_s PROC
         mov byte ptr ds:[_s], al
     pop ax
     ret
-
-
 get_s ENDP
 
 get_d PROC
-
     push ax
         and al, 02h
         shr al, 1
         mov byte ptr ds:[_d], al
     pop ax
     ret
-
-
 get_d ENDP
 
-
+;; getters for mod, reg and rm
 get_mod PROC
     push ax
         shr al, 06h
@@ -1220,6 +1230,7 @@ get_rm PROC
     ret
 get_rm ENDP
 
+;; checks the mod and redirects further
 handle_mod PROC
     cmp byte ptr ds:[_mod], 0h
         je handle_mod_00_label
@@ -1245,13 +1256,13 @@ handle_mod PROC
 
 handle_mod ENDP
 
-
+; if mod=00
 handle_mod_00 PROC
     mov cx, 08h
     mov al, ds:[_rm]
 
+    ;; loop thru table
     lea bx, reg_memory_table_mod_00
-
 
     _handle_mod_00_array_loop:
         cmp al, byte ptr [bx]
@@ -1267,15 +1278,16 @@ handle_mod_00 PROC
         inc bx
         mov dx, bx
         mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
-        mov cx, 5h ;;kiek bitu rasysim
+        mov bx, 0001h
+        mov cx, 5h
         int 21h
 
         ret
 
-    ;; when rm 110, direct address
+    ;;  special vase when rm 110, direct address
     _handle_mod_00_spec_case:
-        call handle_buffer ;; pasiimu kitus du baitus
+        ;; load two other bytes
+        call handle_buffer
         mov al, byte ptr ds:[si]
 
         call handle_buffer
@@ -1285,12 +1297,10 @@ handle_mod_00 PROC
 
         ret
 
-        ;; cia reikia skirti du baitus ?? ir is kazkur patraukt ju reiksme? poslinkis?
-
 handle_mod_00 ENDP
 
 
-;; procedure to print ax
+;; procedure to print ax (2 bytes_)
 print_ax_hex PROC
 	push ax	 ; will need it later
 
@@ -1299,8 +1309,7 @@ print_ax_hex PROC
 	mov bh, 16 ;; divide to get hex
 	div bh ; al / bh    ah - remainder, al - quetient
 
-        push ax
-	;mov bl, ah ; save ah for later (remainder)
+    push ax
 
 	;; handle quotient
 	cmp al, 10
@@ -1317,13 +1326,14 @@ print_ax_hex PROC
         mov cx, 1h
         int 21h
 
+    pop ax
+
     ;; handle remainder
-        pop ax
-        mov bl, ah
+    mov bl, ah
 	cmp bl, 10
 	jb	_print_ax_hex_second_number
 
-	add bl, 7
+	add bl, 7 ;; if letter add 7
 
 	_print_ax_hex_second_number:
         add bl, '0'
@@ -1341,8 +1351,8 @@ print_ax_hex PROC
 	div bh
 	;; dividing by 16
 
-	;mov bl, ah ; save ah for later
-        push ax
+
+    push ax
 
 	;; print quotient
 	cmp al, 10
@@ -1383,24 +1393,21 @@ print_ax_hex PROC
 
 print_ax_hex ENDP
 
-;; procedure to print ax
+;; procedure to print ax (1 byte), same as above but only one byte
 print_ax_hex_1_byte PROC
 	push ax	 ; will need it later
 
-	; parse and print ah
-	;shr ax, 8 ;; byte shift to right to make printing easy
 	xor ah, ah
 	mov bh, 16 ;; divide to get hex
 	div bh ; al / bh    ah - remainder, al - quetient
 
-        push ax
-	;mov bl, ah ; save ah for later (remainder)
+    push ax
 
 	;; handle quotient
 	cmp al, 10
 	jb _print_ax_hex_1_byte_first_number
 
-	add al, 7
+	add al, 7 ;;if letter add 7
 
 	_print_ax_hex_1_byte_first_number:
         add al, '0'
@@ -1411,9 +1418,10 @@ print_ax_hex_1_byte PROC
         mov cx, 1h
         int 21h
 
+    pop ax
+
     ;; handle remainder
-        pop ax
-        mov bl, ah
+    mov bl, ah
 	cmp bl, 10
 	jb	_print_ax_hex_1_byte_second_number
 
@@ -1428,7 +1436,6 @@ print_ax_hex_1_byte PROC
         mov cx, 1h
         int 21h
 
-	; parse and print al
 	pop ax
 
 	H
@@ -1438,7 +1445,9 @@ print_ax_hex_1_byte PROC
 print_ax_hex_1_byte ENDP
 
 
+;; if mod  = 01
 handle_mod_01 PROC
+    ;; same as mod=00, but + offset
     mov cx, 08h
     mov al, ds:[_rm]
 
@@ -1455,23 +1464,21 @@ handle_mod_01 PROC
         inc bx
         mov dx, bx
         mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
-        mov cx, 6h ;;kiek bitu rasysim
+        mov bx, 0001h
+        mov cx, 6h
         int 21h
 
+        ;;get new byte (offset)
         call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
         mov al, byte ptr ds:[si]
 
-            call print_ax_hex_1_byte
-        ;mov ah, 00h
-        ;call print_ax_hex
-
-    ;; 1 baito poslinkis
+        call print_ax_hex_1_byte
     ret
 handle_mod_01 ENDP
 
-
+;; if mod =10
 handle_mod_10 PROC
+    ;; similar as the 01 but offset is 2 bytes
     mov cx, 08h
     mov al, ds:[_rm]
 
@@ -1488,38 +1495,40 @@ handle_mod_10 PROC
         inc bx
         mov dx, bx
         mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
-        mov cx, 6h ;;kiek bitu rasysim
+        mov bx, 0001h
+        mov cx, 6h
         int 21h
 
-        call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
-        mov al, byte ptr ds:[si] ;;apkeiciau ah ir al!!!!!!!
+        ;; get bytes for the offset
+        call handle_buffer
+        mov al, byte ptr ds:[si]
 
         call handle_buffer
         mov ah, byte ptr ds:[si]
 
         call print_ax_hex
 
-    ;; 1 baito poslinkis
-    ret
-    ;; dvieju baitu poslinkis
     ret
 handle_mod_10 ENDP
 
-
+;; if mod=1
 handle_mod_11 PROC
     mov cx, 08h
     mov al, ds:[_rm]
 
+    ;; check value of w (and load corresponding table)
     cmp byte ptr ds:[_w], 0h
     je handle_w_0
 
+    ;; w=1
     lea bx, register_table_w_1
     jmp _handle_mod_11_array_loop
 
+    ; w=0
     handle_w_0:
-         lea bx, register_table_w_0
+    lea bx, register_table_w_0
 
+    ;; loop
     _handle_mod_11_array_loop:
         cmp al, byte ptr [bx]
         je _handle_mod_11_opcode_found
@@ -1527,6 +1536,7 @@ handle_mod_11 PROC
         add bx, 03h
     loop _handle_mod_11_array_loop
 
+    ;; print
     _handle_mod_11_opcode_found:
         inc bx
         mov dx, bx
@@ -1539,9 +1549,9 @@ handle_mod_11 PROC
 
 handle_mod_11 ENDP
 
-
+;; ckecks the current buffer size and reads more if there is nothing to read
 handle_buffer PROC
-push ax
+    push ax
     inc [_address]
     inc si
     dec [current_buffer_size]
@@ -1552,14 +1562,13 @@ push ax
 
     handle_buffer_return:
         mov al, byte ptr ds:[si]
-
         call mov_current_byte_buff_out
 
     pop ax
-        ret
-
+    ret
 handle_buffer ENDP
 
+;; reads more bytes
 read_buffer PROC
     push ax
     mov ah, 3Fh
@@ -1577,7 +1586,7 @@ read_buffer PROC
 read_buffer ENDP
 
 
-
+;; function for reading file_name
 read_filename PROC
     push ds es ;; pasipushinam kad nesugadintume
 
@@ -1601,7 +1610,7 @@ read_filename PROC
 
         inc cx
 
-        cmp cx, 13 ;; jei ilgesnis nei 13 terminate§1
+        cmp cx, 13 ;; jei ilgesnis nei 13 terminate
         ja stop
 
         cmp byte ptr ds:[si], ' ' ;; jei nuskaitem visa faila
@@ -1624,7 +1633,7 @@ read_filename PROC
         jmp read_filename_start
 read_filename ENDP
 
-
+;; function to skip extra spaces
 skip_spaces PROC
     mov si, es:[_next_file]
 
@@ -1639,6 +1648,7 @@ skip_spaces PROC
         ret
 skip_spaces ENDP
 
+;; for printing address at the end of each line when disassembling
 print_address PROC
     mov ax, word ptr ds:[_address]
     call print_ax_hex
@@ -1647,7 +1657,7 @@ print_address PROC
     ret
 print_address ENDP
 
-
+;;?
 mov_current_byte_buff_out PROC
 	push si ax	 ; will need it later
 
@@ -1710,7 +1720,6 @@ print_byte_buff PROC
     int 21h
 
     SPACE
-
 
     lea dx, bytes_bfr
     mov ah, 40h
@@ -1828,6 +1837,7 @@ check_buffer ENDP
 
 ; expects argument to be in al
 ; return argument in al
+;; checks if argument in ranges 0-9 A-H a-h
 convert_to_real_expression PROC
     cmp al, 'a'
     jb big_letter
@@ -1859,6 +1869,8 @@ convert_to_real_expression PROC
     _convert_to_real_expression_ret:
     ret
 convert_to_real_expression ENDP
+
+
 ;; help message print
 help:
     mov ax, @data
@@ -1889,7 +1901,7 @@ stop:
     mov ax, 4c00h 
     int 21h 
 
-
+;; destination error
 err_dest:
     mov ax, @data
     mov ds, ax
@@ -1905,6 +1917,7 @@ err_dest:
     mov ax, 4c01h ;; return with 1
     int 21h
 
+;; source error
 err_source:
     mov ax, @data
     mov ds, ax
@@ -1916,6 +1929,7 @@ err_source:
     mov ax, 4c01h ; return with 1
     int 21h
 
+;; wrong input error
 err_wrong_input:
     mov ax, @data
     mov ds, ax
@@ -1926,6 +1940,7 @@ err_wrong_input:
 
     jmp stop
 
+;; some other internal error
 err_internal:
     mov ax, @data
     mov ds, ax
@@ -1935,8 +1950,5 @@ err_internal:
     int 21h
 
     jmp stop
-
-
-
 
 end START
