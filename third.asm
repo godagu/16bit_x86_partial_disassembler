@@ -1509,6 +1509,8 @@ print_ax_hex PROC
 
 print_ax_hex ENDP
 
+
+;; same as previous but to buffer
 buffer_out_ax_hex PROC
 	push ax	 ; will need it later
 
@@ -1647,6 +1649,8 @@ print_ax_hex_1_byte PROC
 
 print_ax_hex_1_byte ENDP
 
+
+;; same as abpve but to buffer
 buffer_out_ax_hex_1_byte PROC
 	push ax	 ; will need it later
 
@@ -1903,7 +1907,7 @@ print_address PROC
     ret
 print_address ENDP
 
-;;?
+;; move to buffer what bytes wehre parsed
 mov_current_byte_buff_out PROC
 	push si ax	 ; will need it later
 
@@ -1957,6 +1961,7 @@ mov_current_byte_buff_out PROC
 
 mov_current_byte_buff_out ENDP
 
+;; print the bytes parsed buffer
 print_byte_buff PROC
 
     lea dx, msg_bytes_parsed
@@ -1982,12 +1987,13 @@ print_byte_buff PROC
 
 print_byte_buff ENDP
 
-
+;; for reading input from the command line
 read_command_line PROC
     push ds es
     mov ax, @data
     mov ds, ax
 
+    ;; print messages
     mov dx, offset input_command_line
     mov ah, 09h
     int 21h
@@ -1998,7 +2004,7 @@ read_command_line PROC
 
     call check_buffer
 
-    ;; perkelti temp_file i sourceF
+    ;; moce temp_file to souce_file
     mov ax, @data
     mov es, ax
     lea si, temp_file
@@ -2011,8 +2017,9 @@ read_command_line PROC
     ret
 read_command_line ENDP
 
-
+;; checks the buffer and writes to temp file
 check_buffer PROC
+    ;; create temo file
     push bx
     xor cx, cx
     mov ah, 3Ch
@@ -2023,16 +2030,16 @@ check_buffer PROC
     mov word ptr ds:[sourceHandle], ax
 
     xor ch, ch
-    mov cl, byte ptr ds:[buffer_reading_cmnd_line + 1]
-
-    ;; susikurt temp faila ir atisdaryt reaad write
+    mov cl, byte ptr ds:[buffer_reading_cmnd_line + 1]              ;; load how many arguments where (count)
 
     lea bx, buffer_reading_cmnd_line
     add bx, 02h
 
+    ;; loop through buffer
     check_buffer_loop:
         mov al, byte ptr [bx]
 
+        ;; read one byte
         call convert_to_real_expression
         mov ah, al
 
@@ -2040,20 +2047,24 @@ check_buffer PROC
         cmp cx, 0
         je one_missing
 
+        ;; read another byte
         inc bx
         mov al, byte ptr [bx]
         call convert_to_real_expression
 
+        ;; join two read bytes to one
         shl ah, 4
         and al, 0Fh
         or al, ah
         jmp write
 
+        ;; uneven amount of bytes, add extra 0 to the end
         one_missing:
         shl ah, 4
         xor al, al
         or al, ah
 
+        ;; irasom i temp file'a
         write:
         push bx cx
         mov byte ptr ds:[buffer], al
@@ -2116,6 +2127,7 @@ convert_to_real_expression PROC
     ret
 convert_to_real_expression ENDP
 
+;; write the buffer
 print_buffer_out PROC
     lea dx, buffer_out
     xor ch, ch
@@ -2126,7 +2138,7 @@ print_buffer_out PROC
 
     mov byte ptr ds:[buffer_out_size], 00h
     ret
-ENDP
+print_buffer_out ENDP
 
 
 ;; help message print
