@@ -649,6 +649,14 @@ continue_loop:
     call handle_buffer
     jmp parse_loop
 
+
+; d8888b. d8888b.  .d88b.   .o88b. d88888b d8888b. db    db d8888b. d88888b .d8888.
+; 88  `8D 88  `8D .8P  Y8. d8P  Y8 88'     88  `8D 88    88 88  `8D 88'     88'  YP
+; 88oodD' 88oobY' 88    88 8P      88ooooo 88   88 88    88 88oobY' 88ooooo `8bo.
+; 88~~~   88`8b   88    88 8b      88~~~~~ 88   88 88    88 88`8b   88~~~~~   `Y8b.
+; 88      88 `88. `8b  d8' Y8b  d8 88.     88  .8D 88b  d88 88 `88. 88.     db   8D
+; 88      88   YD  `Y88P'   `Y88P' Y88888P Y8888D' ~Y8888P' 88   YD Y88888P `8888Y'
+
 ;; procedures for handling different families
 ;; updated for buffer_out
 handle_1010 PROC
@@ -918,8 +926,8 @@ handle_1000 PROC
                 call handle_buffer
                 mov al, byte ptr ds:[si]
 
-                mov ah, 00h
-                call buffer_out_ax_hex
+                ;mov ah, 00h
+                call buffer_out_ax_hex_1_byte
 
                 jmp _handle_1000_end
 
