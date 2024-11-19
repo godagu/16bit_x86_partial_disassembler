@@ -31,7 +31,6 @@ main    proc    far        ; <=== Entry point (main function)
     nop
     nop
 
-      ; JMP instructions
     jmp short label1
     jmp word ptr [bx+si]
     jmp word ptr [bx+1234h]
@@ -42,49 +41,35 @@ main    proc    far        ; <=== Entry point (main function)
     nop
     nop
 
-
     xor word ptr [bx+97E4h], dx
     xor byte ptr [bp+di], 0AAh
 
-
     nop
     nop
 
-
-    ; INC (memory)
     inc word ptr [bp+si]
     inc byte ptr [bp+si+0FFh]
 
     nop
     nop
 
-
-    ; DEC (memory)
     dec word ptr [bx+di]
     dec byte ptr [di+5678h]
 
     nop
     nop
 
-
-    ; CALL (opcode 1111xxxx)
     call word ptr [si]
     call word ptr [bp+124h]
 
     nop
     nop
 
-
-    ; PUSH (reg/mem)
     push ax
     push bp
     push word ptr es:[bx+si+10h]
 
     nop
-
-    nop
-    nop
-
     nop
 
     adc word ptr cs:[si+10h], 01h
@@ -106,14 +91,11 @@ main    proc    far        ; <=== Entry point (main function)
     nop
     nop
 
-
-    ; SUB (opcode 1000xxxx)
     sub ax, dx
     sub bl, 15h
     nop
 
     sub word ptr [bp+si], bx
-
 
     nop
     nop
@@ -123,52 +105,36 @@ main    proc    far        ; <=== Entry point (main function)
     nop
     nop
 
-
-    ; MOVS
     movsb
     movsw
 
-    ; CMPS
     cmpsb
     cmpsw
 
-    ; STOS
     stosb
     stosw
 
-    ; LODS
     lodsb
     lodsw
 
-    ; SCAS
     scasb
     scasw
 
-
     nop
     nop
 
-    nop
-    nop
-
-    ; ROL instructions
     rol al, 1
     rol word ptr [si], cl
 
 
     nop
 
-
-    ; ROR instructions
     ror ah, 2
     ror word ptr [bx], cl
 
-
     nop
     nop
 
-
-    ; RCL instructions
     rcl al, 1
     rcl word ptr [bp+di], cl
 
@@ -176,41 +142,26 @@ main    proc    far        ; <=== Entry point (main function)
     nop
     nop
 
-
-    ; RCR instructions
     rcr ah, 2
     rcr word ptr [bp], cl
 
-
-    nop
     nop
 
-
-    ; SHL instructions
     shl al, 3
     shl word ptr [di+1234h], 1
 
 
     nop
-    nop
 
-
-    ; SHR instructions
     shr al, 1
-    shr word ptr [bx+si], cl
+    shr word ptr [bx+si+9], cl
 
 
     nop
     nop
 
-
-    ; SAR instructions
     sar al, 1
     sar word ptr [bp+di], cl
-
-
-
-
 
 
 main    endp                ;<=== End function
