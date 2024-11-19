@@ -1,13 +1,17 @@
 .model small
 .stack 100H
 
-;; ------------------------------------------------------------
-;; |    /\  /\         /\       /----  |--\  /---\     /----- |
-;; |   /  \/  \       /  \     /       |__|  |   |     |      |
-;; |  /        \     /----\    \       |\    |   |     \----\ |
-;; | /          \   /      \    \----  | \   \---/      ----/ |
-;; ------------------------------------------------------------
+; .88b  d88.  .d8b.   .o88b. d8888b.  .d88b.  .d8888.
+; 88'YbdP`88 d8' `8b d8P  Y8 88  `8D .8P  Y8. 88'  YP
+; 88  88  88 88ooo88 8P      88oobY' 88    88 `8bo.
+; 88  88  88 88~~~88 8b      88`8b   88    88   `Y8b.
+; 88  88  88 88   88 Y8b  d8 88 `88. `8b  d8' db   8D
+; YP  YP  YP YP   YP  `Y88P' 88   YD  `Y88P'  `8888Y'
+
+
 BUFFER_READ_SIZE = 02H
+
+BUFFER_OUT_MAX_SIZE = 80h
 
 NEW_LINE macro
         mov dl, 13
@@ -25,11 +29,34 @@ SPACE macro
         int 21h
 endm
 
+SPACE_BFR macro
+        push bx
+
+        lea bx, buffer_out
+        add bl, byte ptr [buffer_out_size]
+        mov byte ptr [bx], 32
+
+        inc byte ptr ds:[buffer_out_size]
+        pop bx
+endm
+
+
 COMMA macro
         mov dl, 44
         mov ah, 02h
         int 21h
 
+endm
+
+COMMA_BFR macro
+        push bx
+
+        lea bx, buffer_out
+        add bl, byte ptr [buffer_out_size]
+        mov byte ptr [bx], 44
+
+        inc byte ptr ds:[buffer_out_size]
+        pop bx
 endm
 
 ONE macro
@@ -38,11 +65,35 @@ ONE macro
         int 21h
 endm
 
+ONE_BFR macro
+        push bx
+
+        lea bx, buffer_out
+        add bl, byte ptr [buffer_out_size]
+        mov byte ptr [bx], 49
+
+        inc byte ptr ds:[buffer_out_size]
+        pop bx
+endm
+
+
 COLON macro
     mov dl, 58
     mov ah, 02h
     int 21h
 endm
+
+COLON_BFR macro
+        push bx
+
+        lea bx, buffer_out
+        add bl, byte ptr [buffer_out_size]
+        mov byte ptr [bx], 58
+
+        inc byte ptr ds:[buffer_out_size]
+        pop bx
+endm
+
 
 H macro
     mov dl, 'h'
@@ -50,7 +101,29 @@ H macro
     int 21h
 endm
 
+H_BFR macro
+        push bx
+
+        lea bx, buffer_out
+        add bl, buffer_out_size
+        mov byte ptr [bx], 'h'
+
+        inc byte ptr ds:[buffer_out_size]
+        pop bx
+endm
+
+
 JUMPS
+
+
+
+; d8888b.  .d8b.  d888888b  .d8b.
+; 88  `8D d8' `8b `~~88~~' d8' `8b
+; 88   88 88ooo88    88    88ooo88
+; 88   88 88~~~88    88    88~~~88
+; 88  .8D 88   88    88    88   88
+; Y8888D' YP   YP    YP    YP   YP
+
 .data
 
 ;; error messages
@@ -72,6 +145,8 @@ input_command_line db 'Please enter commands in HEX to disassemble:', 13, 10, '$
 
 buffer_reading_cmnd_line db 255, 0, 255 dup(?)
 
+buffer_out db BUFFER_OUT_MAX_SIZE dup(?)
+buffer_out_size db 0
 
 ;; handling files
 sourceF db 13 dup(0)
@@ -274,6 +349,9 @@ source_from_file:
     ;; read first byte
     call read_buffer
     inc [_address]
+
+    mov ax, @data
+    mov es, ax
 
     ;; move to si first byte to read
     mov al, byte ptr ds:[si]
@@ -565,6 +643,7 @@ continue_loop:
     jmp parse_loop
 
 ;; procedures for handling different families
+;; updated for buffer_out
 handle_1010 PROC
     mov al, byte ptr ds:[si]
     and al, 0Fh ;; and with 00001111 to unmask the last 4 bits
@@ -587,22 +666,25 @@ handle_1010 PROC
 
     _handle_1010_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
-        mov cx, 04h ;;kiek bitu rasysim
-        int 21h
+        mov cx, 04h
+
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         cmp byte ptr ds:[_w], 00H ;;palyginam ar w yra 0 ar 1
         je write_b
 
 
-        ;; if not b, write w
         mov dl, byte ptr ds:[symbol_w]
-        mov ah, 02h
-        int 21h 
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
 
-        SPACE
+        mov byte ptr [bx], dl
+        inc byte ptr ds:[buffer_out_size]
+
+        SPACE_BFR
+
+        call print_buffer_out
+
         call print_byte_buff
 
         NEW_LINE
@@ -612,10 +694,16 @@ handle_1010 PROC
     ;; else write b symbol
     write_b:
         mov dl, byte ptr ds:[symbol_b]
-        mov ah, 02h
-        int 21h 
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
 
-        SPACE
+        mov byte ptr [bx], dl
+        inc byte ptr ds:[buffer_out_size]
+
+        SPACE_BFR
+
+        call print_buffer_out
+
         call print_byte_buff
         NEW_LINE
 
@@ -623,12 +711,28 @@ handle_1010 PROC
 
 handle_1010 ENDP
 
+mov_cl_bytes_to_bfr_out_from_bx PROC
+        push ax si bx
+        xor ah, ah
+        mov al, byte ptr ds:[buffer_out_size]
 
+        mov si, bx
+        lea di, buffer_out
+        add di, ax
+
+        add byte ptr ds:[buffer_out_size], cl
+
+        rep movsb
+        pop bx si ax
+        ret
+ENDP
+
+; updated for buffer
 handle_001sr PROC
     mov al, byte ptr ds:[si]
-    and al, 18h ; and su 000 11 000 to get the sr
+    and al, 18h                                             ; and su 000 11 000 to get the sr
 
-    shr al, 0003h ; byte shift to allign
+    shr al, 0003h                                           ; byte shift to allign
 
     ;; load and loop through segment prefix table
     lea bx, segment_prefix_table
@@ -638,28 +742,31 @@ handle_001sr PROC
         cmp al, byte ptr [bx]
         je _handle_001sr_opcode_found
 
-        add bx, 04h ;pridedam tiek, kiek zodzio ilgis array
+        add bx, 04h                                         ;pridedam tiek, kiek zodzio ilgis array
 
     loop _handle_001sr_array_loop
 
     _handle_001sr_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
-        mov cx, 03h ;;kiek bitu rasysim
-        int 21h
+        mov cx, 03h
 
+        call mov_cl_bytes_to_bfr_out_from_bx
+
+        SPACE_BFR
+
+        call print_buffer_out
 
         SPACE
         call print_byte_buff
 
         NEW_LINE
+        mov byte ptr ds:[buffer_out_size], 0
 
         ret
 
 handle_001sr ENDP
 
+;; updated for buffer_out
 handle_1101 PROC
     ;; get w and v
     mov al, byte ptr ds:[si]
@@ -692,45 +799,44 @@ handle_1101 PROC
 
     _handle_1101_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
         mov cx, 03h ;;kiek bitu rasysim
-        int 21h
 
-        SPACE
+        call mov_cl_bytes_to_bfr_out_from_bx
+
+        SPACE_BFR
 
         ;; handle different mods
         call handle_mod
-        COMMA
+        COMMA_BFR
 
-        SPACE
+        SPACE_BFR
 
         ;; check v and determine wheter to write , CL or , 1
         cmp byte ptr ds:[_v], 01h
         je print_CL
 
-        ONE
+        ONE_BFR
 
-        H
+        H_BFR
 
         jmp continue
 
         print_CL:
-            lea dx, _cl
-            mov ah, 40h
-            mov bx, 0001h
+            lea bx, _cl
             mov cx, 02h
-            int 21h
+            call mov_cl_bytes_to_bfr_out_from_bx
 
         continue:
-            SPACE
+            SPACE_BFR
+            call print_buffer_out
+
             call print_byte_buff
             NEW_LINE
             ret
 
 handle_1101 ENDP
 
+;; updated for buffer_out
 handle_1000 PROC
         mov al, byte ptr ds:[si]
         call get_s
@@ -761,19 +867,17 @@ handle_1000 PROC
 
         _handle_1000_opcode_found:
             inc bx
-            mov dx, bx
-            mov ah, 40h
-            mov bx, 0001h ;; kol kas i stdout
             mov cx, 03h ;;kiek bitu rasysim
-            int 21h
+            call mov_cl_bytes_to_bfr_out_from_bx
 
-            SPACE
+            SPACE_BFR
 
             call handle_mod
 
-            COMMA
+            COMMA_BFR
 
-            SPACE
+            SPACE_BFR
+
             ;; s = 0, w = 1 skaitom 2 baitus
             cmp byte ptr [_s], 0h
             je _handle_1000_s_0
@@ -792,13 +896,13 @@ handle_1000 PROC
 
             ;; if first bit is zero, add 00
             xor ah, ah
-            call print_ax_hex
+            call buffer_out_ax_hex
 
             jmp _handle_1000_end
 
             _handle_1000_spec_case:
                 mov ah, 0FFh
-                call print_ax_hex
+                call buffer_out_ax_hex
 
                 jmp _handle_1000_end
 
@@ -808,7 +912,7 @@ handle_1000 PROC
                 mov al, byte ptr ds:[si]
 
                 mov ah, 00h
-                call print_ax_hex
+                call buffer_out_ax_hex
 
                 jmp _handle_1000_end
 
@@ -824,7 +928,7 @@ handle_1000 PROC
                 call handle_buffer
                 mov ah, byte ptr ds:[si]
 
-                call print_ax_hex
+                call buffer_out_ax_hex
 
                 jmp _handle_1000_end
 
@@ -838,7 +942,9 @@ handle_1000 PROC
 
 
         _handle_1000_end:
-            SPACE
+            SPACE_BFR
+            call print_buffer_out
+
             call print_byte_buff
             NEW_LINE
             ret
@@ -846,7 +952,7 @@ handle_1000 PROC
 
 handle_1000 ENDP
 
-
+;; updated for buffer_out
 handle_0011 PROC
 
     mov al, byte ptr ds:[si]
@@ -869,13 +975,11 @@ handle_0011 PROC
         call get_w
 
         ;; print xor command
-        lea dx, _xor
-        mov ah, 40h
-        mov bx, 0001h
+        lea bx, _xor
         mov cx, 03h
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
-        SPACE
+        SPACE_BFR
 
         ;; load other bytes
         call handle_buffer
@@ -892,8 +996,8 @@ handle_0011 PROC
         ;; else handle d=0
         call handle_mod
 
-        COMMA
-        SPACE
+        COMMA_BFR
+        SPACE_BFR
 
         call handle_mod_11_reg
 
@@ -902,8 +1006,8 @@ handle_0011 PROC
     _handle_0011_d_1:
         call handle_mod_11_reg
 
-        COMMA
-        SPACE
+        COMMA_BFR
+        SPACE_BFR
 
         call handle_mod
 
@@ -916,24 +1020,20 @@ handle_0011 PROC
         call get_w
 
         ;; print xor command
-        lea dx, _xor
-        mov ah, 40h
-        mov bx, 0001h
+        lea bx, _xor
         mov cx, 03h
-        int 21h
 
-        SPACE
+        call mov_cl_bytes_to_bfr_out_from_bx
+
+        SPACE_BFR
 
         ;; get ax from the table
-        lea dx, register_table_w_1
-        inc dx
-        mov ah, 40h
-        mov bx, 0001h
+        lea bx, register_table_w_1
         mov cx, 02h
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
-        COMMA
-        SPACE
+        COMMA_BFR
+        SPACE_BFR
 
         ;; load new bytes
         call handle_buffer
@@ -951,27 +1051,28 @@ handle_0011 PROC
 
 
         _handle_1000_print_ax_hex:
-            call print_ax_hex
+            call buffer_out_ax_hex
 
 
     _handle_0011_end:
-        SPACE
+        SPACE_BFR
+        call print_buffer_out
+
         call print_byte_buff
         NEW_LINE
         ret
 
 handle_0011 ENDP
 
+;; updated for buffer_out
 handle_1110 PROC
 
         ;; print jmp
-        lea dx, _jmp
-        mov ah, 40h
-        mov bx, 0001h
+        lea bx, _jmp
         mov cx, 03h
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
-        SPACE
+        SPACE_BFR
 
         mov al, byte ptr ds:[si]
         and al, 0Fh
@@ -997,9 +1098,11 @@ handle_1110 PROC
             mov ah, byte ptr ds:[si]
 
 
-            call print_ax_hex
+            call buffer_out_ax_hex
 
-            SPACE
+            SPACE_BFR
+            call print_buffer_out
+
             call print_byte_buff
             NEW_LINE
 
@@ -1015,7 +1118,7 @@ handle_1110 PROC
             mov ah, byte ptr ds:[si]
 
 
-            call print_ax_hex
+            call buffer_out_ax_hex
 
             call handle_buffer
             mov al, byte ptr ds:[si]
@@ -1025,9 +1128,11 @@ handle_1110 PROC
             mov ah, byte ptr ds:[si]
 
 
-            call print_ax_hex
+            call buffer_out_ax_hex
 
-            SPACE
+            SPACE_BFR
+            call print_buffer_out
+
             call print_byte_buff
             NEW_LINE
 
@@ -1038,9 +1143,11 @@ handle_1110 PROC
             call handle_buffer
             mov al, byte ptr ds:[si]
 
-            call print_ax_hex_1_byte
+            call buffer_out_ax_hex_1_byte
 
-            SPACE
+            SPACE_BFR
+            call print_buffer_out
+
             call print_byte_buff
             NEW_LINE
 
@@ -1048,6 +1155,7 @@ handle_1110 PROC
 
 handle_1110 ENDP
 
+;; updated for buffer_out
 handle_1111_1111 PROC
     mov al, byte ptr ds:[si]
     call get_w
@@ -1074,22 +1182,21 @@ handle_1111_1111 PROC
 
     _handle_1111_1111_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
         mov cx, 04h ;;kiek bitu rasysim
-        int 21h
+
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         mov al, byte ptr ds:[si]
 
         call get_mod
         call get_rm
 
-        SPACE
+        SPACE_BFR
 
         call handle_mod
 
-        SPACE
+        SPACE_BFR
+        call print_buffer_out
 
         call print_byte_buff
         NEW_LINE
@@ -1103,6 +1210,7 @@ handle_1111_1111 ENDP
 
 ;; helper function for opp 0011
 ;; prints register according to w value
+;; updated for buffer_out
 handle_mod_11_reg PROC
     mov cx, 08h
     mov al, ds:[_reg]
@@ -1125,17 +1233,15 @@ handle_mod_11_reg PROC
 
     _handle_mod_11_xor_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
         mov cx, 2h ;;kiek bitu rasysim
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         ret
 
 handle_mod_11_reg ENDP
 
 ;; handles r/m (register/memory) according to w
+;; updated for buffer_out
 handle_rm PROC
     mov cx, 08h
     mov al, ds:[_rm]
@@ -1158,11 +1264,8 @@ handle_rm PROC
 
     _handle_rm_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
         mov cx, 2h
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         ret
 
@@ -1170,7 +1273,7 @@ handle_rm ENDP
 
 ;; getters for w, v, s, d
 get_w PROC
-    push ax
+    push ax;; updated for buffer_out
         and al, 0001h
         mov byte ptr ds:[_w], al
     pop ax
@@ -1257,6 +1360,7 @@ handle_mod PROC
 handle_mod ENDP
 
 ; if mod=00
+; update for buffer_out
 handle_mod_00 PROC
     mov cx, 08h
     mov al, ds:[_rm]
@@ -1276,11 +1380,8 @@ handle_mod_00 PROC
         je _handle_mod_00_spec_case
 
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
         mov cx, 5h
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         ret
 
@@ -1293,7 +1394,7 @@ handle_mod_00 PROC
         call handle_buffer
         mov ah, byte ptr ds:[si]
 
-        call print_ax_hex
+        call buffer_out_ax_hex
 
         ret
 
@@ -1393,6 +1494,93 @@ print_ax_hex PROC
 
 print_ax_hex ENDP
 
+buffer_out_ax_hex PROC
+	push ax	 ; will need it later
+
+	; parse and print ah
+	shr ax, 8 ;; byte shift to right to make printing easy
+	mov bh, 16 ;; divide to get hex
+	div bh ; al / bh    ah - remainder, al - quetient
+
+    push ax
+
+	;; handle quotient
+	cmp al, 10
+	jb _buffer_out_ax_hex_first_number
+
+	add al, 7
+
+	_buffer_out_ax_hex_first_number:
+        add al, '0'
+
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
+        mov byte ptr [bx], al
+        inc byte ptr ds:[buffer_out_size]
+
+    pop ax
+
+    ;; handle remainder
+    mov dl, ah
+	cmp dl, 10
+	jb	_buffer_out_ax_hex_second_number
+
+	add dl, 7 ;; if letter add 7
+
+	_buffer_out_ax_hex_second_number:
+        add dl, '0'
+
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
+        mov byte ptr [bx], dl
+        inc byte ptr ds:[buffer_out_size]
+
+	; parse and print al
+	pop ax
+	and ax, 00FFh ;; and with 00001111 to unmask the last bits of ax
+	mov bh, 16
+	div bh
+	;; dividing by 16
+
+
+    push ax
+
+	;; print quotient
+	cmp al, 10
+	jb _buffer_out_ax_hex_third_number
+
+	add al, 7 ;; if letter add 7
+
+	_buffer_out_ax_hex_third_number:
+        add al, '0'
+
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
+        mov byte ptr [bx], al
+        inc byte ptr ds:[buffer_out_size]
+
+    ;; print remainder
+        pop ax
+        mov dl, ah
+	cmp dl, 10
+	jb	_buffer_out_ax_hex_fourth_number
+
+	add dl, 7
+
+	_buffer_out_ax_hex_fourth_number:
+        add dl, '0'
+
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
+        mov byte ptr [bx], dl
+        inc byte ptr ds:[buffer_out_size]
+
+        H_BFR
+
+	ret
+
+buffer_out_ax_hex ENDP
+
 ;; procedure to print ax (1 byte), same as above but only one byte
 print_ax_hex_1_byte PROC
 	push ax	 ; will need it later
@@ -1444,8 +1632,57 @@ print_ax_hex_1_byte PROC
 
 print_ax_hex_1_byte ENDP
 
+buffer_out_ax_hex_1_byte PROC
+	push ax	 ; will need it later
+
+	xor ah, ah
+	mov bh, 16 ;; divide to get hex
+	div bh ; al / bh    ah - remainder, al - quetient
+
+    push ax
+
+	;; handle quotient
+	cmp al, 10
+	jb _buffer_out_ax_hex_1_byte_first_number
+
+	add al, 7 ;;if letter add 7
+
+	_buffer_out_ax_hex_1_byte_first_number:
+        add al, '0'
+
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
+        mov byte ptr [bx], al
+        inc byte ptr ds:[buffer_out_size]
+
+    pop ax
+
+    ;; handle remainder
+    mov dl, ah
+	cmp dl, 10
+	jb	_buffer_out_ax_hex_1_byte_second_number
+
+	add dl, 7
+
+	_buffer_out_ax_hex_1_byte_second_number:
+        add dl, '0'
+
+        lea bx, buffer_out
+        add bl, byte ptr ds:[buffer_out_size]
+        mov byte ptr [bx], dl
+        inc byte ptr ds:[buffer_out_size]
+
+	pop ax
+
+	H_BFR
+
+	ret
+
+buffer_out_ax_hex_1_byte ENDP
+
 
 ;; if mod  = 01
+;; updated for buffer_out
 handle_mod_01 PROC
     ;; same as mod=00, but + offset
     mov cx, 08h
@@ -1462,21 +1699,20 @@ handle_mod_01 PROC
 
     _handle_mod_01_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
         mov cx, 6h
-        int 21h
+
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         ;;get new byte (offset)
         call handle_buffer ;; pasiimu kita baita (poslinkis tik per viena)
         mov al, byte ptr ds:[si]
 
-        call print_ax_hex_1_byte
+        call buffer_out_ax_hex_1_byte
     ret
 handle_mod_01 ENDP
 
 ;; if mod =10
+;;; updated for buffer_out
 handle_mod_10 PROC
     ;; similar as the 01 but offset is 2 bytes
     mov cx, 08h
@@ -1493,11 +1729,8 @@ handle_mod_10 PROC
 
     _handle_mod_10_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h
         mov cx, 6h
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         ;; get bytes for the offset
         call handle_buffer
@@ -1506,12 +1739,13 @@ handle_mod_10 PROC
         call handle_buffer
         mov ah, byte ptr ds:[si]
 
-        call print_ax_hex
+        call buffer_out_ax_hex
 
     ret
 handle_mod_10 ENDP
 
-;; if mod=1
+;; if mod=11
+;; updated for buffer_out
 handle_mod_11 PROC
     mov cx, 08h
     mov al, ds:[_rm]
@@ -1539,11 +1773,8 @@ handle_mod_11 PROC
     ;; print
     _handle_mod_11_opcode_found:
         inc bx
-        mov dx, bx
-        mov ah, 40h
-        mov bx, 0001h ;; kol kas i stdout
         mov cx, 2h ;;kiek bitu rasysim
-        int 21h
+        call mov_cl_bytes_to_bfr_out_from_bx
 
         ret
 
@@ -1869,6 +2100,18 @@ convert_to_real_expression PROC
     _convert_to_real_expression_ret:
     ret
 convert_to_real_expression ENDP
+
+print_buffer_out PROC
+    lea dx, buffer_out
+    xor ch, ch
+    mov cl, byte ptr ds:[buffer_out_size]
+    mov bx, 0001h
+    mov ah, 40h
+    int 21h
+
+    mov byte ptr ds:[buffer_out_size], 00h
+    ret
+ENDP
 
 
 ;; help message print
